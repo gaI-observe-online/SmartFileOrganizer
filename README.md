@@ -1,49 +1,96 @@
 # SmartFileOrganizer
 
-**AI-Powered Intelligent File Organization System**
+**AI-Powered Intelligent File Organization System with Web UI**
 
-SmartFileOrganizer is a production-ready, privacy-first file organization tool that uses local AI (Ollama/LLama) to intelligently categorize and organize your files with complete audit trail capabilities.
+SmartFileOrganizer is a production-ready, privacy-first file organization tool that uses local AI (Ollama/LLama) to intelligently categorize and organize your files. Now with a modern web interface for easy, visual file management!
 
 ## ✨ Features
 
+### Web UI (New in v2.0!)
+- 🌐 **Modern Web Interface** - Beautiful, consumer-grade UI in your browser
+- 🚀 **One-Click Auto-Scan** - Scan Downloads, Documents, Desktop, Pictures instantly
+- 📊 **Visual Plan Preview** - See what will happen before files are moved
+- ✅ **Interactive Approval** - Approve, execute, and rollback with one click
+- 🎯 **Real-Time Status** - Live server health monitoring
+- 📱 **Responsive Design** - Works on desktop, tablet, and mobile
+
+### Core Features
 - 🤖 **AI-Powered Organization** - Uses Ollama (llama3.3/qwen2.5) for intelligent file categorization
 - 🔒 **Privacy-First** - 100% local processing, no external communication
 - 📊 **4-Level Categorization** - Type → Context → Time → Smart naming
 - ⚠️ **Risk Assessment** - Automatic detection of sensitive content (SSN, credit cards, API keys)
 - 📝 **Complete Audit Trail** - Triple-format logging (SQLite + JSON Lines + human-readable)
 - ↩️ **Rollback Support** - Undo any operation with full file restoration
-- 👁️ **Watch Mode** - Real-time monitoring and organization
-- 🎨 **Rich Terminal UI** - Beautiful, color-coded interface with progress indicators
+- 👁️ **Watch Mode** - Real-time monitoring and organization (CLI)
+- 🎨 **Rich Terminal UI** - Beautiful, color-coded CLI interface
 - 🧠 **Self-Learning** - Learns from your preferences over time
 - 🐳 **Docker Ready** - Easy deployment with Docker Compose
 
 ## 🚀 Quick Start
 
-### One-Command Installation (Linux/Mac)
+### One-Click Installation
 
+**Linux/macOS:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/gaI-observe-online/SmartFileOrganizer/main/install.sh | bash
+./install.sh
 ```
 
-### Manual Installation
-
-```bash
-# Clone repository
-git clone https://github.com/gaI-observe-online/SmartFileOrganizer.git
-cd SmartFileOrganizer
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run organizer
-python organize.py scan ~/Downloads
+**Windows:**
+```batch
+install.bat
 ```
 
-## 📖 Basic Usage
+The installer will:
+1. ✅ Check Python 3.8+ and system requirements
+2. ✅ Install Ollama (if needed) and download AI models
+3. ✅ Set up Python environment with all dependencies
+4. ✅ **Start web server automatically**
+5. ✅ **Open browser to http://localhost:8001**
 
-### Scan and Organize Files
+**That's it!** You're ready to organize files.
+
+### First Use: Web UI
+
+1. **Click "Auto-Scan Common Folders"** - Scans Downloads, Documents, Desktop, Pictures
+2. **Review organization plans** - See file count, space savings, risk level
+3. **Click "Approve"** on plans you like
+4. **Click "Execute"** to organize files
+5. **Use "Rollback"** to undo if needed
+
+**Zero terminal interaction required!** 🎉
+
+## 📖 Usage
+
+### Web UI (Primary Interface)
+
+The web interface is now the recommended way to use SmartFileOrganizer:
+
+1. **Start the server** (if not already running):
+   ```bash
+   ./start.sh  # Linux/macOS
+   start.bat   # Windows
+   ```
+
+2. **Open browser**: http://localhost:8001
+
+3. **Use the interface**:
+   - Auto-scan common folders with one click
+   - Manually enter folder paths to scan
+   - Review organization plans with visual metrics
+   - Approve and execute plans
+   - Rollback executed plans if needed
+
+### CLI (Advanced Users)
+
+### CLI (Advanced Users)
+
+The CLI is still fully functional for power users:
 
 ```bash
+# Activate virtual environment first
+source venv/bin/activate  # Linux/macOS
+venv\Scripts\activate.bat  # Windows
+
 # Interactive mode (preview and confirm)
 python organize.py scan ~/Downloads
 
@@ -153,14 +200,6 @@ Edit `~/.organizer/config.json`:
   }
 }
 ```
-
-## 📚 Documentation
-
-- [Installation Guide](docs/INSTALLATION.md)
-- [Usage Guide](docs/USAGE.md)
-- [Configuration Reference](docs/CONFIGURATION.md)
-- [Privacy & Security](docs/PRIVACY.md)
-- [Audit Trail](docs/AUDIT_TRAIL.md)
 
 ## 🐳 Docker Deployment
 
