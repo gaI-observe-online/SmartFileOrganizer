@@ -191,6 +191,7 @@ function renderPlans(plans) {
 function createPlanCard(plan) {
     const card = document.createElement('div');
     card.className = 'plan-card';
+    card.setAttribute('data-plan-id', plan.id);
     
     // Format plan ID (first 8 characters)
     const shortId = plan.id.toString().substring(0, 8);
@@ -198,41 +199,69 @@ function createPlanCard(plan) {
     // Format timestamp
     const timestamp = new Date(plan.timestamp).toLocaleString();
     
-    card.innerHTML = `
-        <div class="plan-header">
-            <span class="plan-id" title="${plan.id}">${shortId}</span>
-            <span class="plan-status status-${plan.status}">${plan.status}</span>
+    // Create card structure
+    const header = document.createElement('div');
+    header.className = 'plan-header';
+    header.innerHTML = `
+        <span class="plan-id" title="${escapeHtml(plan.id)}">${escapeHtml(shortId)}</span>
+        <span class="plan-status status-${escapeHtml(plan.status)}">${escapeHtml(plan.status)}</span>
+    `;
+    
+    const info = document.createElement('div');
+    info.className = 'plan-info';
+    info.innerHTML = `
+        <p><strong>📁 Folder:</strong> ${escapeHtml(plan.root_path)}</p>
+        <p style="font-size: 0.8rem; color: #a0aec0;">Created: ${escapeHtml(timestamp)}</p>
+    `;
+    
+    const metrics = document.createElement('div');
+    metrics.className = 'plan-metrics';
+    metrics.innerHTML = `
+        <div class="metric">
+            <span class="metric-label">Files</span>
+            <span class="metric-value">📄 ${escapeHtml(plan.file_count.toString())}</span>
         </div>
-        <div class="plan-info">
-            <p><strong>📁 Folder:</strong> ${escapeHtml(plan.root_path)}</p>
-            <p style="font-size: 0.8rem; color: #a0aec0;">Created: ${timestamp}</p>
+        <div class="metric">
+            <span class="metric-label">Space</span>
+            <span class="metric-value">💾 ${escapeHtml(plan.reclaimable_mb.toFixed(2))} MB</span>
         </div>
-        <div class="plan-metrics">
-            <div class="metric">
-                <span class="metric-label">Files</span>
-                <span class="metric-value">📄 ${plan.file_count}</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Space</span>
-                <span class="metric-value">💾 ${plan.reclaimable_mb.toFixed(2)} MB</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Risk Level</span>
-                <span class="metric-value risk-${plan.risk_level.toLowerCase()}">⚠️ ${plan.risk_level}</span>
-            </div>
-        </div>
-        <div class="plan-actions">
-            <button class="btn-success" onclick="approvePlan('${plan.id}')" ${plan.status !== 'pending' ? 'disabled' : ''}>
-                ✅ Approve
-            </button>
-            <button class="btn-primary" onclick="executePlan('${plan.id}')" ${plan.status === 'executed' || plan.status === 'rolled_back' ? 'disabled' : ''}>
-                ▶️ Execute
-            </button>
-            <button class="btn-warning" onclick="rollbackPlan('${plan.id}')" ${plan.status !== 'executed' ? 'disabled' : ''}>
-                ↩️ Rollback
-            </button>
+        <div class="metric">
+            <span class="metric-label">Risk Level</span>
+            <span class="metric-value risk-${escapeHtml(plan.risk_level.toLowerCase())}">⚠️ ${escapeHtml(plan.risk_level)}</span>
         </div>
     `;
+    
+    const actions = document.createElement('div');
+    actions.className = 'plan-actions';
+    
+    // Create buttons with proper event listeners (not inline onclick)
+    const approveBtn = document.createElement('button');
+    approveBtn.className = 'btn-success';
+    approveBtn.textContent = '✅ Approve';
+    approveBtn.disabled = plan.status !== 'pending';
+    approveBtn.addEventListener('click', () => approvePlan(plan.id));
+    
+    const executeBtn = document.createElement('button');
+    executeBtn.className = 'btn-primary';
+    executeBtn.textContent = '▶️ Execute';
+    executeBtn.disabled = plan.status === 'executed' || plan.status === 'rolled_back';
+    executeBtn.addEventListener('click', () => executePlan(plan.id));
+    
+    const rollbackBtn = document.createElement('button');
+    rollbackBtn.className = 'btn-warning';
+    rollbackBtn.textContent = '↩️ Rollback';
+    rollbackBtn.disabled = plan.status !== 'executed';
+    rollbackBtn.addEventListener('click', () => rollbackPlan(plan.id));
+    
+    actions.appendChild(approveBtn);
+    actions.appendChild(executeBtn);
+    actions.appendChild(rollbackBtn);
+    
+    // Assemble card
+    card.appendChild(header);
+    card.appendChild(info);
+    card.appendChild(metrics);
+    card.appendChild(actions);
     
     return card;
 }
@@ -367,16 +396,62 @@ function hideLoading() {
  * Show success message
  */
 function showSuccessMessage(message) {
-    alert('✅ ' + message);
-    // TODO: Replace with toast notification in production
+    showToast(message, 'success');
 }
 
 /**
  * Show error message
  */
 function showErrorMessage(message) {
-    alert('❌ ' + message);
-    // TODO: Replace with toast notification in production
+    showToast(message, 'error');
+}
+
+/**
+ * Show toast notification
+ */
+function showToast(message, type = 'info') {
+    // Create toast container if it doesn't exist
+    let toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.className = 'toast-container';
+        document.body.appendChild(toastContainer);
+    }
+    
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
+    const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+    toast.innerHTML = `
+        <span class="toast-icon">${icon}</span>
+        <span class="toast-message">${escapeHtml(message)}</span>
+        <button class="toast-close" aria-label="Close notification">×</button>
+    `;
+    
+    // Add to container
+    toastContainer.appendChild(toast);
+    
+    // Close button handler
+    const closeBtn = toast.querySelector('.toast-close');
+    closeBtn.addEventListener('click', () => {
+        toast.classList.add('toast-hiding');
+        setTimeout(() => toast.remove(), 300);
+    });
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.classList.add('toast-hiding');
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 5000);
+    
+    // Trigger animation
+    requestAnimationFrame(() => {
+        toast.classList.add('toast-visible');
+    });
 }
 
 /**

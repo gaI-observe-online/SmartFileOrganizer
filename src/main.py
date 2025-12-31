@@ -4,9 +4,11 @@ import json
 import logging
 import os
 import sys
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 import uuid
+from datetime import datetime
 
 # Add src to path so we can import smartfile
 sys.path.insert(0, str(Path(__file__).parent))
@@ -389,12 +391,13 @@ async def execute_plan(plan_id: str) -> Dict:
                 # Backup if enabled
                 if config.get('backup.enabled', True):
                     backup_dir.mkdir(parents=True, exist_ok=True)
-                    backup_path = backup_dir / source.name
-                    import shutil
+                    # Use timestamp to avoid name collisions in backup
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                    backup_filename = f"{source.stem}_{timestamp}{source.suffix}"
+                    backup_path = backup_dir / backup_filename
                     shutil.copy2(str(source), str(backup_path))
                 
                 # Move file
-                import shutil
                 shutil.move(str(source), str(dest))
                 
                 # Log the move
