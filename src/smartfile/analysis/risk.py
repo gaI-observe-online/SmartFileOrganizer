@@ -14,6 +14,7 @@ class RiskAssessor:
     LOW_RISK_MAX = 30
     MEDIUM_RISK_MAX = 70
     HIGH_RISK_MIN = 71
+    MAX_RISK_SCORE = 100
     
     # System file extensions
     SYSTEM_EXTENSIONS = {'.dll', '.sys', '.exe', '.so', '.dylib'}
@@ -87,7 +88,7 @@ class RiskAssessor:
             except (OSError, ValueError):
                 pass
         
-        return min(score, 100), reasons
+        return min(score, self.MAX_RISK_SCORE), reasons
     
     def get_risk_level(self, score: int) -> str:
         """Get risk level from score.

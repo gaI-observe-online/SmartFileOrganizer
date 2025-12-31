@@ -8,21 +8,28 @@ from typing import List, Tuple
 class SensitiveDataRedactor:
     """Redact sensitive information from text."""
     
+    # Minimum length for API key detection (configurable to reduce false positives)
+    MIN_API_KEY_LENGTH = 40
+    
     # Patterns for sensitive data detection
     SSN_PATTERN = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
     CREDIT_CARD_PATTERN = re.compile(r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b')
     EMAIL_PATTERN = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
     PHONE_PATTERN = re.compile(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b')
-    API_KEY_PATTERN = re.compile(r'\b[A-Za-z0-9]{32,}\b')
+    API_KEY_PATTERN = None  # Will be set in __init__
     PASSWORD_PATTERN = re.compile(r'(?i)(password|passwd|pwd)[\s:=]+[^\s]+')
     
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, min_api_key_length: int = 40):
         """Initialize redactor.
         
         Args:
             enabled: Whether redaction is enabled
+            min_api_key_length: Minimum length for API key detection (default 40 to reduce false positives)
         """
         self.enabled = enabled
+        self.min_api_key_length = min_api_key_length
+        # Compile API key pattern with configurable length
+        self.API_KEY_PATTERN = re.compile(rf'\b[A-Za-z0-9]{{{min_api_key_length},}}\b')
     
     def redact(self, text: str) -> str:
         """Redact sensitive information from text.
@@ -48,7 +55,7 @@ class SensitiveDataRedactor:
         # Phone: 555-123-4567 → ***-***-****
         text = self.PHONE_PATTERN.sub('***-***-****', text)
         
-        # API Keys (32+ chars): redact completely
+        # API Keys (configurable length)
         text = self.API_KEY_PATTERN.sub('****', text)
         
         # Passwords: password: secret → password: ****
