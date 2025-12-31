@@ -5,6 +5,7 @@
 - Python 3.8 or higher
 - 10GB+ free disk space
 - Linux, macOS, or Windows (WSL or native)
+- Internet connection for downloading dependencies
 
 ## Quick Installation
 
@@ -25,6 +26,19 @@ cd SmartFileOrganizer
 chmod +x install.sh
 ./install.sh
 ```
+
+The enhanced installer will:
+- ✅ Check for conflicts and existing installations
+- ✅ Verify all system dependencies
+- ✅ Check disk space and permissions
+- ✅ Create isolated virtual environment
+- ✅ Install all Python dependencies
+- ✅ Install and configure Ollama (Linux only)
+- ✅ Download AI models (llama3.3, qwen2.5)
+- ✅ Create configuration files
+- ✅ Run health checks
+- ✅ Provide detailed logs
+- ✅ Automatic rollback on failure
 
 ### Windows
 
@@ -77,7 +91,12 @@ docker exec smartfile-organizer python organize.py scan /data/Downloads
 
 ## Verifying Installation
 
+After installation, the installer runs automatic health checks. You can verify manually:
+
 ```bash
+# Run diagnostics tool
+./diagnose.sh
+
 # Check version
 python organize.py --version
 
@@ -88,25 +107,64 @@ python organize.py --help
 python organize.py scan ~/Downloads --dry-run
 ```
 
+### Installation Logs
+
+All installation activity is logged to: `~/.organizer/install.log`
+
+View logs:
+```bash
+cat ~/.organizer/install.log
+tail -f ~/.organizer/install.log  # Follow in real-time
+```
+
 ## Troubleshooting
 
-### Python Not Found
+### Run Diagnostics
 
-**Linux/Mac:**
+If you encounter issues, run the diagnostics tool first:
+
 ```bash
-# Install Python 3.8+
-sudo apt-get install python3.8  # Debian/Ubuntu
-brew install python@3.8         # macOS
+./diagnose.sh
+```
+
+This will:
+- Collect system information
+- Check all dependencies
+- Verify installation status
+- Test Ollama connectivity
+- Analyze logs
+- Identify common issues
+- Generate a report
+
+### Common Issues
+
+#### 1. Python Not Found
+
+**Linux/Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install python3.8 python3-pip python3-venv
+```
+
+**Fedora/RHEL:**
+```bash
+sudo dnf install python3 python3-pip
+```
+
+**macOS:**
+```bash
+brew install python@3.8
 ```
 
 **Windows:**
 Download from [python.org](https://www.python.org/downloads/)
 
-### Ollama Installation Issues
+#### 2. Ollama Installation Issues
 
 **Linux:**
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
+sudo systemctl start ollama  # Start service
 ```
 
 **macOS:**
@@ -115,21 +173,117 @@ Download from [ollama.com/download](https://ollama.com/download)
 **Windows:**
 Download from [ollama.com/download/windows](https://ollama.com/download/windows)
 
-### Dependency Installation Errors
+#### 3. Ollama Not Running
+
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/version
+
+# Start Ollama
+ollama serve  # Run in background or
+sudo systemctl start ollama  # Linux with systemd
+```
+
+#### 4. Dependency Installation Errors
 
 ```bash
 # Upgrade pip first
-pip install --upgrade pip
+python3 -m pip install --upgrade pip
 
 # Install with verbose output
 pip install -r requirements.txt -v
+
+# If specific package fails
+pip install <package-name> --verbose
 ```
 
-### Tesseract OCR Not Found
+#### 5. Permission Denied Errors
+
+**Install directory not writable:**
+```bash
+# Check permissions
+ls -la .
+
+# Fix if needed
+sudo chown -R $USER:$USER .
+```
+
+**Cannot create config directory:**
+```bash
+# Check home directory permissions
+ls -la ~
+
+# Create directory manually
+mkdir -p ~/.organizer
+chmod 755 ~/.organizer
+```
+
+**Cannot create symlink:**
+```bash
+# Create symlink manually
+sudo ln -sf $(pwd)/organize.py /usr/local/bin/organize
+```
+
+#### 6. Disk Space Issues
+
+```bash
+# Check available space
+df -h .
+
+# Clean up if needed
+docker system prune  # If using Docker
+pip cache purge
+ollama rm <unused-model>  # Remove unused models
+```
+
+#### 7. Network Connectivity Issues
+
+```bash
+# Test PyPI connection
+curl -I https://pypi.org
+
+# Test Ollama connection
+curl -I https://ollama.com
+
+# If behind proxy, set environment variables
+export HTTP_PROXY=http://proxy:port
+export HTTPS_PROXY=http://proxy:port
+pip install -r requirements.txt
+```
+
+#### 8. Installation Failed Mid-Way
+
+The installer has automatic rollback, but if you need to clean up manually:
+
+```bash
+# Remove partial installation
+rm -rf venv/
+rm -f ~/.organizer/install.state
+
+# Run installer again
+./install.sh
+```
+
+#### 9. Reinstalling Over Existing Installation
+
+The installer detects existing installations and prompts for confirmation. To force reinstall:
+
+```bash
+# Uninstall first
+./uninstall.sh
+
+# Then reinstall
+./install.sh
+```
+
+#### 10. Tesseract OCR Not Found
+
+Tesseract is optional but required for OCR on images.
 
 **Linux:**
 ```bash
-sudo apt-get install tesseract-ocr
+sudo apt-get install tesseract-ocr  # Ubuntu/Debian
+sudo dnf install tesseract            # Fedora
 ```
 
 **macOS:**
@@ -139,6 +293,19 @@ brew install tesseract
 
 **Windows:**
 Download from [tesseract-ocr](https://github.com/UB-Mannheim/tesseract/wiki)
+
+### Getting Help
+
+If problems persist:
+
+1. Run `./diagnose.sh` and save the output
+2. Check installation log: `~/.organizer/install.log`
+3. Search existing [GitHub Issues](https://github.com/gaI-observe-online/SmartFileOrganizer/issues)
+4. Create a new issue with:
+   - Diagnostic output
+   - Installation log
+   - System information (OS, Python version)
+   - Error messages
 
 ## Post-Installation
 
@@ -178,6 +345,20 @@ ollama pull qwen2.5
 
 ## Uninstallation
 
+SmartFileOrganizer provides a complete uninstall script:
+
+```bash
+./uninstall.sh
+```
+
+The uninstaller will:
+- Remove the virtual environment
+- Remove system symlink
+- Optionally remove configuration and data
+- Log all uninstall actions
+- Leave no artifacts behind
+
+**Manual uninstall (if needed):**
 ```bash
 # Remove virtual environment
 rm -rf venv/
@@ -191,4 +372,16 @@ sudo rm /usr/local/bin/organize
 # Remove repository
 cd ..
 rm -rf SmartFileOrganizer/
+```
+
+## Testing the Installation
+
+Run the installation test suite:
+
+```bash
+# Run all tests
+./tests/install/integration_tests.sh
+
+# Run Python unit tests (requires pytest)
+pytest tests/install/test_installation.py -v
 ```

@@ -25,6 +25,13 @@ SmartFileOrganizer is a production-ready, privacy-first file organization tool t
 curl -sSL https://raw.githubusercontent.com/gaI-observe-online/SmartFileOrganizer/main/install.sh | bash
 ```
 
+✨ **Enhanced Installer Features:**
+- Automatic dependency checks & installation
+- Rollback on failure
+- Health checks & diagnostics  
+- Comprehensive error logging
+- Unattended reinstall support
+
 ### Manual Installation
 
 ```bash
@@ -32,12 +39,16 @@ curl -sSL https://raw.githubusercontent.com/gaI-observe-online/SmartFileOrganize
 git clone https://github.com/gaI-observe-online/SmartFileOrganizer.git
 cd SmartFileOrganizer
 
-# Install dependencies
-pip install -r requirements.txt
+# Run enhanced installer
+./install.sh
 
-# Run organizer
-python organize.py scan ~/Downloads
+# Or install manually
+pip install -r requirements.txt
 ```
+
+**Troubleshooting?** Run `./diagnose.sh` for automated diagnostics.
+
+**Need to uninstall?** Run `./uninstall.sh` for complete removal.
 
 ## 📖 Basic Usage
 
