@@ -245,8 +245,9 @@ class StateRecoveryManager:
             crash_info["interrupted_scan"] = scan_state.to_dict()
         
         try:
+            # Write each crash as a separate JSON line (JSON Lines format)
             with open(self.crash_log_file, 'a') as f:
-                f.write(json.dumps(crash_info, indent=2) + "\n")
+                f.write(json.dumps(crash_info) + "\n")
             
             logger.info(f"Recorded crash information to {self.crash_log_file}")
         
@@ -268,23 +269,18 @@ class StateRecoveryManager:
         crashes = []
         
         try:
+            # Read JSON Lines format (one JSON object per line)
             with open(self.crash_log_file, 'r') as f:
-                content = f.read()
-                # Split by JSON object boundaries
-                lines = content.strip().split('\n}\n')
-                
-                for line in lines:
-                    if not line.strip():
+                for line in f:
+                    line = line.strip()
+                    if not line:
                         continue
-                    
-                    # Re-add closing brace if it was split
-                    if not line.strip().endswith('}'):
-                        line = line + '}'
                     
                     try:
                         crash = json.loads(line)
                         crashes.append(crash)
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse crash log line: {e}")
                         continue
         
         except Exception as e:

@@ -6,6 +6,7 @@ offline mode detection, and connection state management.
 
 import logging
 import time
+import random
 from typing import Callable, Optional, Any, TypeVar, List
 from functools import wraps
 from enum import Enum
@@ -70,7 +71,6 @@ def calculate_backoff_delay(
     
     # Add jitter if enabled
     if config.jitter:
-        import random
         jitter_amount = delay * 0.1  # 10% jitter
         delay += random.uniform(-jitter_amount, jitter_amount)
     
@@ -94,13 +94,15 @@ def is_retryable_error(error: Exception) -> bool:
         return error.is_network_error()
     
     # Check for common retryable exceptions
-    retryable_exceptions = (
-        ConnectionError,
-        TimeoutError,
-        OSError,  # Includes network errors
+    # Note: We check for built-in exceptions by name to avoid shadowing
+    retryable_exception_names = (
+        'ConnectionError',
+        'TimeoutError',
+        'OSError',
     )
     
-    if isinstance(error, retryable_exceptions):
+    exception_name = type(error).__name__
+    if exception_name in retryable_exception_names:
         return True
     
     # Check error message for retryable indicators

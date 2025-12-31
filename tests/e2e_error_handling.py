@@ -59,6 +59,8 @@ def test_retry_logic():
         console.print(f"  Attempt {call_count}...")
         
         if call_count < 3:
+            # Raise our custom ConnectionError, not built-in
+            from smartfile.utils.errors import ConnectionError
             raise ConnectionError("Ollama", "http://localhost:11434")
         
         return "success"

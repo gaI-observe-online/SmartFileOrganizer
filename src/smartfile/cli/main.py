@@ -343,7 +343,8 @@ def _copy_to_clipboard(text: str):
         pyperclip.copy(text)
     except ImportError:
         # pyperclip not available, write to file instead
-        temp_file = Path("/tmp/organizer_error_details.txt")
+        import tempfile
+        temp_file = Path(tempfile.gettempdir()) / "organizer_error_details.txt"
         with open(temp_file, 'w') as f:
             f.write(text)
         console.print(f"[yellow]Clipboard not available. Error details saved to: {temp_file}[/yellow]")
