@@ -91,6 +91,7 @@ async function manualScan(folderPath) {
         return;
     }
     
+    const scanStartTime = Date.now();
     showLoading(`Scanning ${folderPath}...`);
     
     try {
@@ -112,13 +113,17 @@ async function manualScan(folderPath) {
         }
         
         const plan = await response.json();
+        const scanDuration = Math.round((Date.now() - scanStartTime) / 1000);
         console.log('Scan result:', plan);
+        
+        // Log performance metric
+        console.log(`Performance: Scanned ${plan.file_count} files in ${scanDuration}s (${plan.scan_duration_ms}ms server-side)`);
         
         if (plan.status === 'empty') {
             showSuccessMessage(plan.message || 'No files found to organize');
         } else {
             showSuccessMessage(
-                `Scan complete! Found ${plan.file_count} files, ${plan.reclaimable_mb.toFixed(2)} MB reclaimable`
+                `Scan complete! Found ${plan.file_count} files, ${plan.reclaimable_mb.toFixed(2)} MB reclaimable (${scanDuration}s)`
             );
         }
         
@@ -545,3 +550,38 @@ function getUsername() {
     // Server should expand ~ to actual home directory
     return null;
 }
+
+/**
+ * Load and display performance metrics (observability)
+ */
+async function loadMetrics() {
+    try {
+        const response = await fetch(`${API_BASE}/api/metrics`);
+        
+        if (!response.ok) {
+            console.warn('Metrics not available');
+            return;
+        }
+        
+        const metrics = await response.json();
+        console.log('Performance Metrics:', metrics);
+        
+        // Display in console for now (future: dashboard)
+        console.table({
+            'Total Scans': metrics.scans_total,
+            'Avg Files/Scan': metrics.avg_files_per_scan,
+            'Plans Created': metrics.plans_created,
+            'Plans Approved': metrics.plans_approved,
+            'Plans Rolled Back': metrics.plans_rolled_back,
+            'Total Files Organized': metrics.files_organized_total
+        });
+        
+    } catch (error) {
+        console.error('Failed to load metrics:', error);
+    }
+}
+
+// Load metrics on page load (for observability)
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(loadMetrics, 2000); // Load after 2 seconds
+});

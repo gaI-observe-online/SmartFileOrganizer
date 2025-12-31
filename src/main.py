@@ -231,6 +231,7 @@ async def get_plans() -> List[Dict]:
 async def create_plan(request: ScanRequest) -> Dict:
     """Create an organization plan by scanning a directory."""
     try:
+        start_time = datetime.now()
         root_path = Path(request.root_path).expanduser()
         
         if not root_path.exists():
@@ -239,8 +240,9 @@ async def create_plan(request: ScanRequest) -> Dict:
         if not root_path.is_dir():
             raise HTTPException(status_code=400, detail=f"Path is not a directory: {request.root_path}")
         
-        # Scan directory
+        # Scan directory with performance monitoring
         scan_id, files = organizer.scan_directory(root_path, request.recursive)
+        scan_duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
         
         if not files:
             return {
@@ -250,10 +252,11 @@ async def create_plan(request: ScanRequest) -> Dict:
                 "reclaimable_mb": 0,
                 "risk_level": "Low",
                 "status": "empty",
-                "message": "No files found to organize"
+                "message": "No files found to organize",
+                "scan_duration_ms": scan_duration_ms
             }
         
-        # Generate proposal
+        # Generate proposal with immutable plan artifact
         proposal = organizer.generate_proposal(scan_id, files, root_path)
         
         # Calculate metrics
@@ -262,6 +265,10 @@ async def create_plan(request: ScanRequest) -> Dict:
         avg_risk = sum(risk_scores) / len(risk_scores) if risk_scores else 0
         risk_level = "Low" if avg_risk < 30 else "Medium" if avg_risk < 70 else "High"
         
+        # Log performance metrics (observability)
+        logger.info(f"Scan completed: {len(files)} files in {scan_duration_ms}ms")
+        logger.info(f"Plan {proposal.proposal_id}: {len(files)} files, {total_size/(1024*1024):.2f}MB, risk={risk_level}")
+        
         return {
             "id": str(proposal.proposal_id),
             "root_path": str(root_path),
@@ -269,7 +276,8 @@ async def create_plan(request: ScanRequest) -> Dict:
             "reclaimable_mb": round(total_size / (1024 * 1024), 2),
             "risk_level": risk_level,
             "status": "pending",
-            "confidence": proposal.confidence
+            "confidence": proposal.confidence,
+            "scan_duration_ms": scan_duration_ms
         }
     
     except HTTPException:
@@ -453,6 +461,52 @@ async def rollback_plan(plan_id: str) -> Dict:
         raise HTTPException(status_code=400, detail="Invalid plan ID")
     except Exception as e:
         logger.error(f"Error rolling back plan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metrics")
+async def get_metrics() -> Dict:
+    """Get performance and usage metrics (observability)."""
+    try:
+        cursor = database.conn.cursor()
+        
+        # Get scan statistics
+        cursor.execute("""
+            SELECT COUNT(*) as total_scans,
+                   AVG(file_count) as avg_files_per_scan
+            FROM scans
+        """)
+        scan_stats = cursor.fetchone()
+        
+        # Get proposal statistics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_plans,
+                SUM(CASE WHEN user_approved = 1 THEN 1 ELSE 0 END) as approved_plans,
+                SUM(CASE WHEN rolled_back = 1 THEN 1 ELSE 0 END) as rolled_back_plans
+            FROM proposals
+        """)
+        plan_stats = cursor.fetchone()
+        
+        # Get move statistics
+        cursor.execute("""
+            SELECT COUNT(*) as total_moves
+            FROM moves
+        """)
+        move_stats = cursor.fetchone()
+        
+        return {
+            "scans_total": scan_stats['total_scans'] or 0,
+            "avg_files_per_scan": round(scan_stats['avg_files_per_scan'] or 0, 1),
+            "plans_created": plan_stats['total_plans'] or 0,
+            "plans_approved": plan_stats['approved_plans'] or 0,
+            "plans_rolled_back": plan_stats['rolled_back_plans'] or 0,
+            "files_organized_total": move_stats['total_moves'] or 0,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
