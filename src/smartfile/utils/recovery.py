@@ -269,14 +269,23 @@ class StateRecoveryManager:
         
         try:
             with open(self.crash_log_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            crash = json.loads(line)
-                            crashes.append(crash)
-                        except json.JSONDecodeError:
-                            continue
+                content = f.read()
+                # Split by JSON object boundaries
+                lines = content.strip().split('\n}\n')
+                
+                for line in lines:
+                    if not line.strip():
+                        continue
+                    
+                    # Re-add closing brace if it was split
+                    if not line.strip().endswith('}'):
+                        line = line + '}'
+                    
+                    try:
+                        crash = json.loads(line)
+                        crashes.append(crash)
+                    except json.JSONDecodeError:
+                        continue
         
         except Exception as e:
             logger.error(f"Error reading crash history: {e}")
