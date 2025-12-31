@@ -19,6 +19,8 @@ from ..analysis.extractor import ContentExtractor
 from ..analysis.categorizer import Categorizer
 from ..analysis.risk import RiskAssessor
 from ..utils.redaction import SensitiveDataRedactor
+from ..utils.errors import OrganizerError, format_error_for_display
+from ..utils.recovery import StateRecoveryManager
 from ..ai.ollama_provider import OllamaProvider
 from ..core.organizer import Organizer
 from ..core.rollback import RollbackManager
@@ -32,8 +34,9 @@ logger = logging.getLogger(__name__)
 @click.version_option(version="1.0.0", prog_name="SmartFileOrganizer")
 @click.option('--config', type=click.Path(), help='Path to config file')
 @click.option('--verbose', is_flag=True, help='Enable verbose logging')
+@click.option('--safe-mode', is_flag=True, help='Run in safe mode (minimal functionality)')
 @click.pass_context
-def cli(ctx, config, verbose):
+def cli(ctx, config, verbose, safe_mode):
     """SmartFileOrganizer - AI-powered intelligent file organization."""
     # Setup logging
     level = logging.DEBUG if verbose else logging.INFO
@@ -44,10 +47,54 @@ def cli(ctx, config, verbose):
     
     # Initialize configuration
     config_path = Path(config) if config else None
-    ctx.obj = {'config': Config(config_path)}
+    ctx.obj = {'config': Config(config_path), 'safe_mode': safe_mode}
     
     # Ensure .organizer directory exists
     ctx.obj['config'].ensure_organizer_dir()
+    
+    # Initialize recovery manager
+    organizer_dir = ctx.obj['config'].organizer_dir
+    recovery_mgr = StateRecoveryManager(organizer_dir / "state")
+    ctx.obj['recovery_manager'] = recovery_mgr
+    
+    # Check for crash and offer recovery
+    if not safe_mode and recovery_mgr.detect_crash():
+        interrupted_scan = recovery_mgr.get_interrupted_scan()
+        if interrupted_scan:
+            console.print("[yellow]⚠️  Previous session did not complete normally[/yellow]\n")
+            
+            # Show incident reconstruction
+            incident = recovery_mgr.reconstruct_incident(interrupted_scan)
+            console.print(Panel(incident, title="Crash Detected", border_style="yellow"))
+            
+            # Offer recovery options
+            console.print("\n[bold]What would you like to do?[/bold]")
+            console.print("  1. Continue (clear the error and proceed)")
+            console.print("  2. Enter safe mode")
+            console.print("  3. View crash details")
+            
+            choice = click.prompt("Choose an option", type=int, default=1)
+            
+            if choice == 1:
+                recovery_mgr.clear_scan_state()
+                console.print("[green]✓ Cleared previous state, continuing...[/green]\n")
+            elif choice == 2:
+                recovery_mgr.enter_safe_mode()
+                ctx.obj['safe_mode'] = True
+                console.print("[yellow]Entered safe mode[/yellow]\n")
+            elif choice == 3:
+                crashes = recovery_mgr.get_crash_history(limit=1)
+                if crashes:
+                    console.print(Panel(
+                        crashes[0].get('traceback', 'No details available'),
+                        title="Crash Details",
+                        border_style="red"
+                    ))
+    
+    # Enter safe mode if requested
+    if safe_mode and not recovery_mgr.is_safe_mode():
+        recovery_mgr.enter_safe_mode()
+        console.print("[yellow]Running in safe mode[/yellow]\n")
 
 
 @cli.command()
@@ -56,115 +103,174 @@ def cli(ctx, config, verbose):
 @click.option('--batch', is_flag=True, help='Batch mode with minimal interaction')
 @click.option('--auto-approve-threshold', type=int, help='Auto-approve threshold (0-100)')
 @click.option('--recursive', is_flag=True, help='Scan recursively')
+@click.option('--show-technical-details', is_flag=True, help='Show technical error details')
 @click.pass_context
-def scan(ctx, path, dry_run, batch, auto_approve_threshold, recursive):
+def scan(ctx, path, dry_run, batch, auto_approve_threshold, recursive, show_technical_details):
     """Scan and organize files in a directory."""
     config = ctx.obj['config']
+    recovery_mgr = ctx.obj['recovery_manager']
     
-    # Override config if specified
-    if auto_approve_threshold is not None:
-        config.set('preferences.auto_approve_threshold', auto_approve_threshold)
-    
-    if dry_run:
-        config.set('preferences.dry_run', True)
-    
-    # Initialize components
-    organizer_dir = config.organizer_dir
-    db = Database(organizer_dir / "audit.db")
-    audit = AuditTrail(organizer_dir, db)
-    redactor = SensitiveDataRedactor(config.get('privacy.redact_sensitive_in_logs', True))
-    
-    # Initialize analysis components
-    extractor = ContentExtractor()
-    categorizer = Categorizer(config)
-    risk_assessor = RiskAssessor(redactor)
-    scanner = Scanner(config, extractor, categorizer, risk_assessor)
-    
-    # Initialize AI provider
-    ai_config = config.get('ai.models.ollama', {})
-    ai_provider = OllamaProvider(
-        endpoint=ai_config.get('endpoint', 'http://localhost:11434'),
-        model=ai_config.get('model', 'llama3.3'),
-        fallback_model=ai_config.get('fallback_model', 'qwen2.5'),
-        timeout=ai_config.get('timeout', 30)
-    )
-    
-    # Initialize organizer
-    organizer = Organizer(config, db, audit, scanner, categorizer, ai_provider)
-    
-    # Scan directory
-    console.print(Panel(f"[bold blue]Scanning:[/bold blue] {path}", expand=False))
-    
-    scan_id, files = organizer.scan_directory(Path(path), recursive)
-    
-    if not files:
-        console.print("[yellow]No files found to organize.[/yellow]")
-        return
-    
-    # Display scan results
-    stats = scanner.get_file_statistics(files)
-    _display_scan_results(stats)
-    
-    # Generate proposal
-    console.print("\n[bold blue]Generating organization proposal...[/bold blue]")
-    
-    base_dir = Path(path).parent / "Organized"
-    proposal = organizer.generate_proposal(scan_id, files, base_dir)
-    
-    # Display proposal
-    _display_proposal(proposal, config.get('preferences.auto_approve_threshold', 30))
-    
-    # Get user approval (unless batch mode with auto-approve)
-    if batch:
-        # Auto-approve low-risk files
-        threshold = config.get('preferences.auto_approve_threshold', 30)
-        low_risk_files = [
-            (f, d) for f, d in proposal.files if f.risk_score <= threshold
-        ]
+    try:
+        # Override config if specified
+        if auto_approve_threshold is not None:
+            config.set('preferences.auto_approve_threshold', auto_approve_threshold)
         
-        if low_risk_files:
-            console.print(f"\n[green]Auto-approving {len(low_risk_files)} low-risk files...[/green]")
-            # Create a new proposal with only low-risk files
-            from ..core.organizer import OrganizationProposal
-            auto_proposal = OrganizationProposal(
-                files=low_risk_files,
-                confidence=proposal.confidence,
-                reasoning=proposal.reasoning
+        if dry_run:
+            config.set('preferences.dry_run', True)
+        
+        # Initialize components
+        organizer_dir = config.organizer_dir
+        db = Database(organizer_dir / "audit.db")
+        audit = AuditTrail(organizer_dir, db)
+        redactor = SensitiveDataRedactor(config.get('privacy.redact_sensitive_in_logs', True))
+        
+        # Initialize analysis components
+        extractor = ContentExtractor()
+        categorizer = Categorizer(config)
+        risk_assessor = RiskAssessor(redactor)
+        scanner = Scanner(config, extractor, categorizer, risk_assessor)
+        
+        # Initialize AI provider with connection indicator
+        ai_config = config.get('ai.models.ollama', {})
+        
+        with console.status("[bold blue]Connecting to AI provider...", spinner="dots"):
+            ai_provider = OllamaProvider(
+                endpoint=ai_config.get('endpoint', 'http://localhost:11434'),
+                model=ai_config.get('model', 'llama3.3'),
+                fallback_model=ai_config.get('fallback_model', 'qwen2.5'),
+                timeout=ai_config.get('timeout', 30)
             )
-            auto_proposal.proposal_id = proposal.proposal_id
-            
-            success, moved = organizer.execute_proposal(auto_proposal, dry_run)
-            
-            if success:
-                console.print(f"[green]✓ Successfully moved {moved} files[/green]")
-            else:
-                console.print(f"[red]✗ Error during execution[/red]")
         
-        # Queue medium/high risk for review
-        high_risk_files = [
-            (f, d) for f, d in proposal.files if f.risk_score > threshold
-        ]
-        if high_risk_files:
-            console.print(f"[yellow]⚠ {len(high_risk_files)} files queued for manual review[/yellow]")
-    
-    else:
-        # Interactive mode
-        if click.confirm('\nProceed with organization?', default=False):
-            audit.log_approval(proposal.proposal_id, True)
-            
-            success, moved = organizer.execute_proposal(proposal, dry_run)
-            
-            if success:
-                console.print(f"\n[green]✓ Successfully moved {moved} files[/green]")
-                if dry_run:
-                    console.print("[yellow](Dry run - no actual changes made)[/yellow]")
-            else:
-                console.print(f"\n[red]✗ Error during execution[/red]")
+        # Show connection status
+        if ai_provider.available:
+            console.print("[green]✓ Connected to AI provider[/green]")
         else:
-            audit.log_approval(proposal.proposal_id, False)
-            console.print("[yellow]Organization cancelled[/yellow]")
+            console.print("[yellow]⚠️  AI provider unavailable - will use rule-based organization[/yellow]")
+        
+        # Initialize organizer
+        organizer = Organizer(config, db, audit, scanner, categorizer, ai_provider)
+        
+        # Scan directory
+        console.print(Panel(f"[bold blue]Scanning:[/bold blue] {path}", expand=False))
+        
+        scan_id, files = organizer.scan_directory(Path(path), recursive)
+        
+        # Record scan start for recovery
+        recovery_mgr.start_scan(scan_id, str(path), len(files))
+        
+        if not files:
+            console.print("[yellow]No files found to organize.[/yellow]")
+            recovery_mgr.complete_scan(scan_id)
+            db.close()
+            return
+        
+        # Display scan results
+        stats = scanner.get_file_statistics(files)
+        _display_scan_results(stats)
+        
+        # Generate proposal
+        console.print("\n[bold blue]Generating organization proposal...[/bold blue]")
+        
+        base_dir = Path(path).parent / "Organized"
+        proposal = organizer.generate_proposal(scan_id, files, base_dir)
+        
+        # Display proposal
+        _display_proposal(proposal, config.get('preferences.auto_approve_threshold', 30))
+        
+        # Get user approval (unless batch mode with auto-approve)
+        if batch:
+            # Auto-approve low-risk files
+            threshold = config.get('preferences.auto_approve_threshold', 30)
+            low_risk_files = [
+                (f, d) for f, d in proposal.files if f.risk_score <= threshold
+            ]
+            
+            if low_risk_files:
+                console.print(f"\n[green]Auto-approving {len(low_risk_files)} low-risk files...[/green]")
+                # Create a new proposal with only low-risk files
+                from ..core.organizer import OrganizationProposal
+                auto_proposal = OrganizationProposal(
+                    files=low_risk_files,
+                    confidence=proposal.confidence,
+                    reasoning=proposal.reasoning
+                )
+                auto_proposal.proposal_id = proposal.proposal_id
+                
+                success, moved = organizer.execute_proposal(auto_proposal, dry_run)
+                
+                if success:
+                    console.print(f"[green]✓ Successfully moved {moved} files[/green]")
+                else:
+                    console.print(f"[red]✗ Error during execution[/red]")
+            
+            # Queue medium/high risk for review
+            high_risk_files = [
+                (f, d) for f, d in proposal.files if f.risk_score > threshold
+            ]
+            if high_risk_files:
+                console.print(f"[yellow]⚠ {len(high_risk_files)} files queued for manual review[/yellow]")
+        
+        else:
+            # Interactive mode
+            if click.confirm('\nProceed with organization?', default=False):
+                audit.log_approval(proposal.proposal_id, True)
+                
+                success, moved = organizer.execute_proposal(proposal, dry_run)
+                
+                if success:
+                    console.print(f"\n[green]✓ Successfully moved {moved} files[/green]")
+                    if dry_run:
+                        console.print("[yellow](Dry run - no actual changes made)[/yellow]")
+                else:
+                    console.print(f"\n[red]✗ Error during execution[/red]")
+            else:
+                audit.log_approval(proposal.proposal_id, False)
+                console.print("[yellow]Organization cancelled[/yellow]")
+        
+        # Mark scan as complete
+        recovery_mgr.complete_scan(scan_id)
+        db.close()
     
-    db.close()
+    except OrganizerError as e:
+        # Handle our custom errors with user-friendly display
+        console.print("\n")
+        console.print(Panel(
+            format_error_for_display(e, show_technical=show_technical_details),
+            title="Error",
+            border_style="red"
+        ))
+        
+        # Record crash for recovery
+        recovery_mgr.record_crash(e)
+        
+        # Offer to copy error details
+        if click.confirm('\nCopy error details to clipboard?', default=False):
+            _copy_to_clipboard(e.get_error_details())
+            console.print("[green]✓ Error details copied to clipboard[/green]")
+        
+        sys.exit(1)
+    
+    except Exception as e:
+        # Handle unexpected errors
+        logger.exception("Unexpected error during scan")
+        
+        console.print("\n")
+        console.print(Panel(
+            f"[red]An unexpected error occurred:[/red]\n\n{str(e)}\n\n"
+            "This is likely a bug. Please report it with the error details.",
+            title="Unexpected Error",
+            border_style="red"
+        ))
+        
+        # Record crash
+        recovery_mgr.record_crash(e)
+        
+        if show_technical_details:
+            import traceback
+            console.print("\n[dim]Technical Details:[/dim]")
+            console.print(traceback.format_exc())
+        
+        sys.exit(1)
 
 
 def _display_scan_results(stats: dict):
@@ -224,6 +330,26 @@ def _format_size(size_bytes: int) -> str:
             return f"{size_bytes:.2f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.2f} TB"
+
+
+def _copy_to_clipboard(text: str):
+    """Copy text to clipboard.
+    
+    Args:
+        text: Text to copy
+    """
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+    except ImportError:
+        # pyperclip not available, write to file instead
+        temp_file = Path("/tmp/organizer_error_details.txt")
+        with open(temp_file, 'w') as f:
+            f.write(text)
+        console.print(f"[yellow]Clipboard not available. Error details saved to: {temp_file}[/yellow]")
+    except Exception as e:
+        logger.warning(f"Failed to copy to clipboard: {e}")
+        console.print("[yellow]Failed to copy to clipboard[/yellow]")
 
 
 @cli.command()

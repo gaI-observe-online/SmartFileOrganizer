@@ -9,6 +9,9 @@ try:
 except ImportError:
     ollama = None
 
+from ..utils.errors import ConnectionError, AIProviderError
+from ..utils.retry import retry_with_backoff, RetryConfig, ConnectionMonitor, ConnectionState
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,13 @@ class OllamaProvider:
         self.model = model
         self.fallback_model = fallback_model
         self.timeout = timeout
+        
+        # Initialize connection monitor
+        self.connection_monitor = ConnectionMonitor(
+            check_interval=5.0,
+            retry_config=RetryConfig(max_attempts=3, initial_delay=1.0)
+        )
+        
         self.available = self._check_availability()
     
     def _check_availability(self) -> bool:
@@ -45,17 +55,21 @@ class OllamaProvider:
         """
         if not ollama:
             logger.warning("Ollama Python library not installed")
+            self.connection_monitor.state = ConnectionState.OFFLINE
             return False
         
         try:
             # Try to list models to verify connection
             ollama.list()
             logger.info(f"Ollama is available at {self.endpoint}")
+            self.connection_monitor.state = ConnectionState.ONLINE
             return True
         except Exception as e:
             logger.warning(f"Ollama not available: {e}")
+            self.connection_monitor.state = ConnectionState.OFFLINE
             return False
     
+    @retry_with_backoff(RetryConfig(max_attempts=3, initial_delay=2.0))
     def generate(
         self,
         prompt: str,
@@ -73,8 +87,16 @@ class OllamaProvider:
             Generated response or None if failed
         """
         if not self.available:
-            logger.error("Ollama is not available")
-            return None
+            # Try to reconnect
+            logger.info("Ollama not available, attempting to reconnect...")
+            self.available = self._check_availability()
+            
+            if not self.available:
+                raise ConnectionError(
+                    service="Ollama",
+                    endpoint=self.endpoint,
+                    original_error=None
+                )
         
         try:
             messages = []
@@ -122,7 +144,12 @@ class OllamaProvider:
         
         except Exception as e:
             logger.error(f"Ollama generation failed: {e}")
-            return None
+            self.connection_monitor.state = ConnectionState.OFFLINE
+            raise AIProviderError(
+                provider="Ollama",
+                operation="generation",
+                original_error=e
+            )
     
     def analyze_files(
         self,
@@ -154,22 +181,28 @@ class OllamaProvider:
             current_date=datetime.now().strftime('%Y-%m-%d')
         )
         
-        # Generate response
-        response = self.generate(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            json_mode=True
-        )
-        
-        if not response:
-            return None
-        
-        # Parse JSON response
         try:
-            return json.loads(response)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            logger.debug(f"Response was: {response}")
+            # Generate response
+            response = self.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                json_mode=True
+            )
+            
+            if not response:
+                return None
+            
+            # Parse JSON response
+            try:
+                return json.loads(response)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response: {e}")
+                logger.debug(f"Response was: {response}")
+                return None
+        
+        except (ConnectionError, AIProviderError) as e:
+            # Log but don't crash - caller will fall back to rule-based
+            logger.warning(f"AI analysis failed: {e.message}")
             return None
     
     def pull_model(self, model_name: str) -> bool:
