@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from ..core.config import Config
+from ..utils.errors import FileSystemError
 from .extractor import ContentExtractor
 from .categorizer import Categorizer
 from .risk import RiskAssessor
@@ -114,9 +115,19 @@ class Scanner:
         """
         files = []
         
-        if not directory.exists() or not directory.is_dir():
-            logger.error(f"Directory does not exist or is not a directory: {directory}")
-            return files
+        if not directory.exists():
+            raise FileSystemError(
+                operation="scan directory",
+                path=str(directory),
+                original_error=FileNotFoundError(f"Directory not found: {directory}")
+            )
+        
+        if not directory.is_dir():
+            raise FileSystemError(
+                operation="scan directory",
+                path=str(directory),
+                original_error=ValueError(f"Path is not a directory: {directory}")
+            )
         
         # Get ignore_hidden setting
         ignore_hidden = self.config.get('preferences.ignore_hidden', True)
@@ -124,25 +135,33 @@ class Scanner:
         # Scan directory
         pattern = "**/*" if recursive else "*"
         
-        for path in directory.glob(pattern):
-            # Skip directories
-            if path.is_dir():
-                continue
-            
-            # Skip hidden files if configured
-            if ignore_hidden and path.name.startswith('.'):
-                continue
-            
-            # Skip files in .organizer directory
-            if '.organizer' in path.parts:
-                continue
-            
-            try:
-                file_info = self._analyze_file(path)
-                files.append(file_info)
-            except Exception as e:
-                logger.warning(f"Error analyzing file {path}: {e}")
-                continue
+        try:
+            for path in directory.glob(pattern):
+                # Skip directories
+                if path.is_dir():
+                    continue
+                
+                # Skip hidden files if configured
+                if ignore_hidden and path.name.startswith('.'):
+                    continue
+                
+                # Skip files in .organizer directory
+                if '.organizer' in path.parts:
+                    continue
+                
+                try:
+                    file_info = self._analyze_file(path)
+                    files.append(file_info)
+                except Exception as e:
+                    logger.warning(f"Error analyzing file {path}: {e}")
+                    continue
+        
+        except PermissionError as e:
+            raise FileSystemError(
+                operation="scan directory",
+                path=str(directory),
+                original_error=e
+            )
         
         logger.info(f"Scanned {directory}: found {len(files)} files")
         return files
