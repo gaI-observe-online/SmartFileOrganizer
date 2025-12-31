@@ -3,9 +3,13 @@
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 import uuid
+
+# Add src to path so we can import smartfile
+sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
