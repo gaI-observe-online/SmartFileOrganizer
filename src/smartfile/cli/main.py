@@ -327,5 +327,136 @@ def config(ctx, show, set_provider, model, api_key, edit):
         console.print("[yellow]Use --show, --set-provider, or --edit[/yellow]")
 
 
+@cli.command()
+@click.argument('path', type=click.Path(exists=True))
+@click.option('--immediate', is_flag=True, help='Process files immediately')
+@click.option('--queue-for-review', is_flag=True, help='Queue files for manual review')
+@click.pass_context
+def watch(ctx, path, immediate, queue_for_review):
+    """Watch folder for new files and organize them automatically."""
+    from .watch import WatchManager
+    
+    config = ctx.obj['config']
+    
+    # Initialize components
+    organizer_dir = config.organizer_dir
+    db = Database(organizer_dir / "audit.db")
+    audit = AuditTrail(organizer_dir, db)
+    redactor = SensitiveDataRedactor(config.get('privacy.redact_sensitive_in_logs', True))
+    
+    extractor = ContentExtractor()
+    categorizer = Categorizer(config)
+    risk_assessor = RiskAssessor(redactor)
+    scanner = Scanner(config, extractor, categorizer, risk_assessor)
+    
+    ai_config = config.get('ai.models.ollama', {})
+    ai_provider = OllamaProvider(
+        endpoint=ai_config.get('endpoint', 'http://localhost:11434'),
+        model=ai_config.get('model', 'llama3.3'),
+        fallback_model=ai_config.get('fallback_model', 'qwen2.5'),
+        timeout=ai_config.get('timeout', 30)
+    )
+    
+    organizer = Organizer(config, db, audit, scanner, categorizer, ai_provider)
+    
+    # Determine mode
+    if immediate:
+        mode = "immediate"
+    elif queue_for_review:
+        mode = "queue"
+    else:
+        mode = "batch"
+    
+    console.print(f"[bold blue]👁 Watching:[/bold blue] {path}")
+    console.print(f"[bold]Mode:[/bold] {mode}")
+    console.print("[yellow]Press Ctrl+C to stop[/yellow]\n")
+    
+    # Start watching
+    watch_mgr = WatchManager(config, organizer)
+    watch_mgr.watch(Path(path), mode)
+
+
+@cli.command()
+@click.option('--last', type=int, default=100, help='Show last N operations')
+@click.option('--date', type=str, help='Filter by date (YYYY-MM-DD)')
+@click.option('--file', type=str, help='Filter by filename')
+@click.pass_context
+def audit(ctx, last, date, file):
+    """Show audit trail."""
+    config = ctx.obj['config']
+    
+    organizer_dir = config.organizer_dir
+    db = Database(organizer_dir / "audit.db")
+    
+    # Get recent scans
+    scans = db.get_recent_scans(last)
+    
+    table = Table(title="Audit Trail")
+    table.add_column("ID", justify="right")
+    table.add_column("Timestamp")
+    table.add_column("Path")
+    table.add_column("Files", justify="right")
+    
+    for scan in scans:
+        # Filter if needed
+        if date and not scan['timestamp'].startswith(date):
+            continue
+        
+        table.add_row(
+            str(scan['id']),
+            str(scan['timestamp']),
+            scan['path'],
+            str(scan['file_count'])
+        )
+    
+    console.print(table)
+    db.close()
+
+
+@cli.command()
+@click.option('--summary', is_flag=True, help='Show summary statistics')
+@click.pass_context
+def stats(ctx, summary):
+    """Show statistics."""
+    config = ctx.obj['config']
+    
+    organizer_dir = config.organizer_dir
+    db = Database(organizer_dir / "audit.db")
+    
+    cursor = db.conn.cursor()
+    
+    # Get total scans
+    cursor.execute("SELECT COUNT(*) FROM scans")
+    total_scans = cursor.fetchone()[0]
+    
+    # Get total proposals
+    cursor.execute("SELECT COUNT(*) FROM proposals")
+    total_proposals = cursor.fetchone()[0]
+    
+    # Get total moves
+    cursor.execute("SELECT COUNT(*) FROM moves")
+    total_moves = cursor.fetchone()[0]
+    
+    # Get approved proposals
+    cursor.execute("SELECT COUNT(*) FROM proposals WHERE user_approved = 1")
+    approved = cursor.fetchone()[0]
+    
+    # Get rolled back proposals
+    cursor.execute("SELECT COUNT(*) FROM proposals WHERE rolled_back = 1")
+    rolled_back = cursor.fetchone()[0]
+    
+    console.print(Panel.fit(
+        f"[bold]Total Scans:[/bold] {total_scans}\n"
+        f"[bold]Total Proposals:[/bold] {total_proposals}\n"
+        f"[bold]Approved:[/bold] {approved}\n"
+        f"[bold]Rolled Back:[/bold] {rolled_back}\n"
+        f"[bold]Total Files Moved:[/bold] {total_moves}",
+        title="📊 Statistics",
+        border_style="blue"
+    ))
+    
+    db.close()
+
+
 if __name__ == '__main__':
     cli()
