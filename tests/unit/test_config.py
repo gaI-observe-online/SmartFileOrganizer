@@ -73,11 +73,9 @@ def test_ensure_organizer_dir(tmp_path):
     config_path = tmp_path / "config.json"
     config = Config(config_path)
     
-    # Temporarily override organizer_dir
-    test_dir = tmp_path / ".organizer"
-    config.organizer_dir = test_dir
-    
+    # Use the actual organizer_dir property
     config.ensure_organizer_dir()
     
-    assert test_dir.exists()
-    assert test_dir.is_dir()
+    # Should create the directory
+    assert config.organizer_dir.exists()
+    assert config.organizer_dir.is_dir()

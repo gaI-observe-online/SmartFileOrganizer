@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .database import Database
+from ..core.database import Database
 
 
 class AuditTrail:
