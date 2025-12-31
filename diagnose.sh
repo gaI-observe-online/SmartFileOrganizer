@@ -280,8 +280,10 @@ test_cli() {
         echo "Testing CLI import..."
         source "$VENV_DIR/bin/activate"
         
-        if python3 -c "from smartfile.cli.main import cli; print('OK')" 2>/dev/null; then
+        if python3 -c "from smartfile.cli.main import cli; print('OK')" 2>/dev/null | grep -q "OK"; then
             echo -e "$(check_mark 0) CLI module imports successfully"
+        elif python3 -c "import sys; sys.path.insert(0, 'src'); from smartfile.cli.main import cli; print('OK')" 2>/dev/null | grep -q "OK"; then
+            echo -e "$(check_mark 0) CLI module imports successfully (with src path)"
         else
             echo -e "$(check_mark 1) CLI module import failed"
             echo ""

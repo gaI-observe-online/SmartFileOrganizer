@@ -114,8 +114,9 @@ main() {
             
             # Save the uninstall log before removing
             if [ -f "$UNINSTALL_LOG" ]; then
-                cp "$UNINSTALL_LOG" /tmp/smartfile-uninstall-$(date +%Y%m%d-%H%M%S).log
-                echo "Uninstall log saved to: /tmp/smartfile-uninstall-$(date +%Y%m%d-%H%M%S).log"
+                TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                cp "$UNINSTALL_LOG" "/tmp/smartfile-uninstall-$TIMESTAMP.log"
+                echo "Uninstall log saved to: /tmp/smartfile-uninstall-$TIMESTAMP.log"
             fi
             
             rm -rf "$CONFIG_DIR"

@@ -381,7 +381,7 @@ Run this checklist to verify everything is working:
 - [ ] Ollama running: `curl http://localhost:11434/api/version`
 - [ ] Models downloaded: `ollama list` (llama3.3, qwen2.5)
 - [ ] Config file exists: `ls ~/.organizer/config.json`
-- [ ] Config is valid JSON: `python3 -c "import json; json.load(open('~/.organizer/config.json'))"`
+- [ ] Config is valid JSON: `python3 -c "import json, os; json.load(open(os.path.expanduser('~/.organizer/config.json')))"`
 - [ ] CLI works: `python organize.py --help`
 - [ ] Can scan (dry-run): `python organize.py scan ~/Downloads --dry-run`
 

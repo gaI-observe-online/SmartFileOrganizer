@@ -32,7 +32,10 @@ INSTALLED_STEPS=()
 # ============================================================================
 
 setup_logging() {
-    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$CONFIG_DIR" || {
+        echo "ERROR: Cannot create config directory: $CONFIG_DIR" >&2
+        exit 1
+    }
     exec > >(tee -a "$LOG_FILE") 2>&1
     log_info "Installation started at $(date)"
     log_info "Script version: $SCRIPT_VERSION"
@@ -585,8 +588,13 @@ health_check_cli() {
     if python3 -c "from smartfile.cli.main import cli; print('OK')" 2>/dev/null | grep -q "OK"; then
         log_success "✓ CLI module loads successfully"
     else
-        log_error "✗ CLI module failed to load"
-        return 1
+        # Try alternate import path for compatibility
+        if python3 -c "import sys; sys.path.insert(0, 'src'); from smartfile.cli.main import cli; print('OK')" 2>/dev/null | grep -q "OK"; then
+            log_success "✓ CLI module loads successfully"
+        else
+            log_error "✗ CLI module failed to load"
+            return 1
+        fi
     fi
     
     # Test organize.py

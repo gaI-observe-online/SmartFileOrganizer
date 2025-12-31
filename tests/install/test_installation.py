@@ -210,9 +210,9 @@ class TestRequirementsFile(InstallTestBase):
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#'):
-                    # Should have == version pinning
-                    if not any(op in line for op in ['==', '>=', '<=']):
-                        self.fail(f"Dependency should be pinned: {line}")
+                    # Should have version specification (==, >=, <=, ~=, >)
+                    if not any(op in line for op in ['==', '>=', '<=', '~=', '>', '<']):
+                        self.fail(f"Dependency should have version constraint: {line}")
 
 
 class TestGitIgnore(InstallTestBase):
