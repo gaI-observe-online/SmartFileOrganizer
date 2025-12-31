@@ -1,0 +1,88 @@
+{
+  "version": "1.0.0",
+  "ai": {
+    "primary": "ollama",
+    "fallback": "rule-based",
+    "models": {
+      "ollama": {
+        "endpoint": "http://localhost:11434",
+        "model": "llama3.3",
+        "fallback_model": "qwen2.5",
+        "timeout": 30
+      },
+      "openai": {
+        "api_key": "",
+        "model": "gpt-4o-mini",
+        "enabled": false
+      },
+      "anthropic": {
+        "api_key": "",
+        "model": "claude-3-sonnet-20240229",
+        "enabled": false
+      }
+    }
+  },
+  "rules": {
+    "documents": {
+      "extensions": [".pdf", ".doc", ".docx", ".txt", ".md"],
+      "folder": "Documents"
+    },
+    "images": {
+      "extensions": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"],
+      "folder": "Images"
+    },
+    "code": {
+      "extensions": [".py", ".js", ".java", ".cpp", ".c", ".h", ".go", ".rs"],
+      "folder": "Code"
+    },
+    "videos": {
+      "extensions": [".mp4", ".avi", ".mkv", ".mov", ".wmv"],
+      "folder": "Videos"
+    },
+    "audio": {
+      "extensions": [".mp3", ".wav", ".flac", ".aac", ".ogg"],
+      "folder": "Audio"
+    },
+    "archives": {
+      "extensions": [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2"],
+      "folder": "Archives"
+    },
+    "finance": {
+      "extensions": [".xlsx", ".xls", ".csv"],
+      "folder": "Finance",
+      "keywords": ["invoice", "receipt", "statement", "tax", "payment"]
+    }
+  },
+  "preferences": {
+    "create_date_folders": false,
+    "backup_before_move": true,
+    "dry_run": false,
+    "auto_approve_threshold": 30,
+    "ignore_hidden": true
+  },
+  "backup": {
+    "enabled": true,
+    "max_operations": 100,
+    "max_size_mb": 5000,
+    "skip_large_files_mb": 500,
+    "retention_days": 30
+  },
+  "privacy": {
+    "no_external_communication": true,
+    "redact_sensitive_in_logs": true,
+    "sensitive_patterns": ["SSN", "CreditCard", "APIKey", "Password", "Email", "Phone"]
+  },
+  "watch": {
+    "enabled": false,
+    "batch_interval_seconds": 300,
+    "auto_approve_low_risk": true,
+    "queue_medium_risk": true,
+    "queue_high_risk": true
+  },
+  "learning": {
+    "enabled": true,
+    "suggest_threshold": 10,
+    "auto_apply_threshold": 20,
+    "min_confidence": 0.80
+  }
+}
