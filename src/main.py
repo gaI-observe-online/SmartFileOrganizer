@@ -365,7 +365,7 @@ async def approve_plan(plan_id: str) -> Dict:
 
 @app.post("/api/plans/{plan_id}/execute")
 async def execute_plan(plan_id: str) -> Dict:
-    """Execute an organization plan."""
+    """Execute an organization plan with integrity verification."""
     try:
         proposal_id = int(plan_id)
         
@@ -373,6 +373,16 @@ async def execute_plan(plan_id: str) -> Dict:
         proposal_data = database.get_proposal_by_id(proposal_id)
         if not proposal_data:
             raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+        
+        # LEGAL DEFENSE: Verify plan integrity (tamper detection)
+        if not database.verify_plan_integrity(proposal_id):
+            logger.error(f"Plan {plan_id} integrity check FAILED - possible tampering")
+            raise HTTPException(
+                status_code=400,
+                detail="Plan integrity verification failed. Plan may have been tampered with."
+            )
+        
+        logger.info(f"Plan {plan_id} integrity verified ✓")
         
         # Parse the plan
         plan_json = json.loads(proposal_data['plan'])
@@ -382,6 +392,7 @@ async def execute_plan(plan_id: str) -> Dict:
         # For now, we'll execute the moves directly
         
         files_moved = 0
+        files_failed = 0
         backup_dir = config.organizer_dir / "backups" / str(proposal_id)
         
         for file_data in plan_json.get('files', []):
@@ -390,6 +401,7 @@ async def execute_plan(plan_id: str) -> Dict:
             
             if not source.exists():
                 logger.warning(f"Source file not found: {source}")
+                files_failed += 1
                 continue
             
             try:
@@ -408,23 +420,35 @@ async def execute_plan(plan_id: str) -> Dict:
                 # Move file
                 shutil.move(str(source), str(dest))
                 
-                # Log the move
+                # Log the move (success)
                 database.add_move(proposal_id, str(source), str(dest))
                 files_moved += 1
             
             except Exception as e:
                 logger.error(f"Error moving {source}: {e}")
+                # Log failed move
+                cursor = database.conn.cursor()
+                cursor.execute(
+                    "INSERT INTO moves (proposal_id, original_path, new_path, timestamp, success, error_message) VALUES (?, ?, ?, ?, ?, ?)",
+                    (proposal_id, str(source), str(dest), datetime.now(), False, str(e))
+                )
+                database.conn.commit()
+                files_failed += 1
                 continue
         
         # Mark as approved if not already
         if not proposal_data['user_approved']:
             database.update_proposal_approval(proposal_id, True)
         
+        # Log execution result
+        audit_trail.log_execute(proposal_id, files_moved, files_failed == 0)
+        
         return {
             "id": plan_id,
-            "status": "executed",
+            "status": "executed" if files_failed == 0 else "partial",
             "files_moved": files_moved,
-            "message": f"Successfully moved {files_moved} files"
+            "files_failed": files_failed,
+            "message": f"Successfully moved {files_moved} files" + (f", {files_failed} failed" if files_failed > 0 else "")
         }
     
     except HTTPException:

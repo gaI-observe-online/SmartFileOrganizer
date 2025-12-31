@@ -1,6 +1,7 @@
 """Database management for audit trail."""
 
 import sqlite3
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -37,15 +38,17 @@ class Database:
             )
         """)
         
-        # Proposals table
+        # Proposals table with plan_hash for tamper evidence
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS proposals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 scan_id INTEGER NOT NULL,
                 plan TEXT NOT NULL,
+                plan_hash TEXT,
                 confidence REAL NOT NULL,
                 timestamp DATETIME NOT NULL,
                 user_approved BOOLEAN,
+                approval_timestamp DATETIME,
                 rolled_back BOOLEAN DEFAULT 0,
                 FOREIGN KEY (scan_id) REFERENCES scans(id)
             )
@@ -59,6 +62,8 @@ class Database:
                 original_path TEXT NOT NULL,
                 new_path TEXT NOT NULL,
                 timestamp DATETIME NOT NULL,
+                success BOOLEAN DEFAULT 1,
+                error_message TEXT,
                 FOREIGN KEY (proposal_id) REFERENCES proposals(id)
             )
         """)
@@ -73,6 +78,27 @@ class Database:
                 timestamp DATETIME NOT NULL
             )
         """)
+        
+        # Add columns if they don't exist (for migration)
+        try:
+            cursor.execute("ALTER TABLE proposals ADD COLUMN plan_hash TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE proposals ADD COLUMN approval_timestamp DATETIME")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE moves ADD COLUMN success BOOLEAN DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            cursor.execute("ALTER TABLE moves ADD COLUMN error_message TEXT")
+        except sqlite3.OperationalError:
+            pass
         
         self.conn.commit()
     
@@ -95,7 +121,7 @@ class Database:
         return cursor.lastrowid
     
     def add_proposal(self, scan_id: int, plan: str, confidence: float) -> int:
-        """Add proposal record.
+        """Add proposal record with tamper-evident hash.
         
         Args:
             scan_id: Associated scan ID
@@ -105,16 +131,19 @@ class Database:
         Returns:
             Proposal ID
         """
+        # Calculate SHA-256 hash for tamper evidence
+        plan_hash = hashlib.sha256(plan.encode('utf-8')).hexdigest()
+        
         cursor = self.conn.cursor()
         cursor.execute(
-            "INSERT INTO proposals (scan_id, plan, confidence, timestamp) VALUES (?, ?, ?, ?)",
-            (scan_id, plan, confidence, datetime.now())
+            "INSERT INTO proposals (scan_id, plan, plan_hash, confidence, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (scan_id, plan, plan_hash, confidence, datetime.now())
         )
         self.conn.commit()
         return cursor.lastrowid
     
     def update_proposal_approval(self, proposal_id: int, approved: bool) -> None:
-        """Update proposal approval status.
+        """Update proposal approval status with timestamp.
         
         Args:
             proposal_id: Proposal ID
@@ -122,10 +151,29 @@ class Database:
         """
         cursor = self.conn.cursor()
         cursor.execute(
-            "UPDATE proposals SET user_approved = ? WHERE id = ?",
-            (approved, proposal_id)
+            "UPDATE proposals SET user_approved = ?, approval_timestamp = ? WHERE id = ?",
+            (approved, datetime.now() if approved else None, proposal_id)
         )
         self.conn.commit()
+    
+    def verify_plan_integrity(self, proposal_id: int) -> bool:
+        """Verify plan integrity by checking hash.
+        
+        Args:
+            proposal_id: Proposal ID
+            
+        Returns:
+            True if plan hash matches, False otherwise
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT plan, plan_hash FROM proposals WHERE id = ?", (proposal_id,))
+        row = cursor.fetchone()
+        
+        if not row or not row['plan_hash']:
+            return True  # No hash stored, assume valid (legacy data)
+        
+        current_hash = hashlib.sha256(row['plan'].encode('utf-8')).hexdigest()
+        return current_hash == row['plan_hash']
     
     def add_move(self, proposal_id: int, original_path: str, new_path: str) -> int:
         """Add move record.
