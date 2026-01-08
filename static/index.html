@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartFileOrganizer - AI-Powered File Organization</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loading-spinner"></div>
+        <p id="loading-message">Loading...</p>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <h1>📂 SmartFileOrganizer</h1>
+            <p class="subtitle">AI-Powered File Organization with Privacy First</p>
+            <div class="status-indicator">
+                <span id="status-dot" class="status-dot status-checking"></span>
+                <span id="status-text">⏳ Checking...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container">
+        <!-- Hero Section -->
+        <section class="hero-section">
+            <h2>Organize Your Files Intelligently</h2>
+            <button id="auto-scan-btn" class="btn-hero">
+                🚀 Auto-Scan Common Folders
+            </button>
+            <p class="hero-subtitle">Scan Downloads, Documents, Desktop, and Pictures</p>
+        </section>
+
+        <!-- Manual Scan Section -->
+        <section class="scan-section">
+            <h3>Manual Folder Scan</h3>
+            <div class="scan-form">
+                <input 
+                    type="text" 
+                    id="folder-path" 
+                    class="input-text" 
+                    placeholder="Enter folder path (e.g., ~/Downloads)"
+                    aria-label="Folder path to scan"
+                >
+                <button id="scan-btn" class="btn-primary">
+                    🔍 Scan Folder
+                </button>
+            </div>
+            
+            <!-- Quick Folder Chips -->
+            <div class="folder-chips">
+                <span class="chip-label">Quick access:</span>
+                <button class="folder-chip" data-folder="Downloads">📥 Downloads</button>
+                <button class="folder-chip" data-folder="Documents">📄 Documents</button>
+                <button class="folder-chip" data-folder="Desktop">🖥️ Desktop</button>
+                <button class="folder-chip" data-folder="Pictures">🖼️ Pictures</button>
+            </div>
+        </section>
+
+        <!-- Plans Section -->
+        <section class="plans-section">
+            <div class="plans-header">
+                <h3>Organization Plans</h3>
+                <button id="refresh-plans-btn" class="btn-secondary">
+                    🔄 Refresh
+                </button>
+            </div>
+            
+            <div id="plans-container" class="plans-grid">
+                <!-- Plans will be dynamically inserted here -->
+                <div class="empty-state">
+                    <span class="empty-icon">📭</span>
+                    <p>No plans yet</p>
+                    <small>Click "Auto-Scan" above to get started!</small>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>🔒 <strong>100% Local Processing</strong> - Your files never leave your computer</p>
+            <p>All operations can be undone with one click</p>
+            <p class="version">SmartFileOrganizer v2.0.0</p>
+        </div>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

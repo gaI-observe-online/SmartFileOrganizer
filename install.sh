@@ -6,6 +6,7 @@ set -e
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║      SmartFileOrganizer - Installation Wizard              ║"
+echo "║              One-Click Setup with Web UI                   ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -13,7 +14,11 @@ echo ""
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Check Python version
 echo "→ Checking Python version..."
@@ -110,30 +115,133 @@ fi
 # Make organize.py executable
 chmod +x organize.py
 
-# Create symlink in /usr/local/bin (optional)
+# Create start script for easy server restart
 echo ""
-read -p "→ Create system-wide command 'organize'? (y/N): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    sudo ln -sf "$SCRIPT_DIR/organize.py" /usr/local/bin/organize
-    echo -e "${GREEN}✓ Command 'organize' created${NC}"
-fi
+echo "→ Creating start script..."
+cat > "$SCRIPT_DIR/start.sh" << 'EOF'
+#!/bin/bash
+# SmartFileOrganizer - Start Script
 
-# Success message
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Start server
+echo "Starting SmartFileOrganizer server..."
+# Bind to localhost only for security (prevents external network access)
+python -m uvicorn src.main:app --host 127.0.0.1 --port 8001 &
+SERVER_PID=$!
+
+echo "Server started with PID: $SERVER_PID"
+echo "Web UI: http://localhost:8001"
 echo ""
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║             Installation Complete! 🎉                      ║"
-echo "╚════════════════════════════════════════════════════════════╝"
+echo "To stop the server, run: kill $SERVER_PID"
+echo "Or press Ctrl+C if running in foreground"
+
+# Keep script running if executed directly
+if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
+    wait $SERVER_PID
+fi
+EOF
+
+chmod +x "$SCRIPT_DIR/start.sh"
+echo -e "${GREEN}✓ Start script created: start.sh${NC}"
+
+# Start server automatically
 echo ""
-echo "Quick Start:"
-echo "  1. Activate virtual environment:  source venv/bin/activate"
-echo "  2. Scan a folder:                 python organize.py scan ~/Downloads"
-echo "  3. Watch a folder:                python organize.py watch ~/Downloads"
+echo "→ Starting SmartFileOrganizer server..."
+cd "$SCRIPT_DIR"
+source venv/bin/activate
+
+# Start server in background
+# Bind to localhost only for security (prevents external network access)
+python -m uvicorn src.main:app --host 127.0.0.1 --port 8001 > /dev/null 2>&1 &
+SERVER_PID=$!
+echo -e "${GREEN}✓ Server started (PID: $SERVER_PID)${NC}"
+
+# Wait for server to be ready
 echo ""
-echo "Documentation:"
-echo "  • README.md         - Quick overview"
-echo "  • docs/USAGE.md     - Detailed usage guide"
-echo "  • docs/PRIVACY.md   - Privacy information"
+echo "→ Waiting for server to be ready..."
+MAX_ATTEMPTS=30
+ATTEMPT=0
+SERVER_READY=0
+
+while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+    if curl -s http://localhost:8001/health > /dev/null 2>&1; then
+        SERVER_READY=1
+        break
+    fi
+    sleep 1
+    ATTEMPT=$((ATTEMPT + 1))
+    echo -n "."
+done
+
 echo ""
-echo -e "${GREEN}Happy organizing! 📂${NC}"
+
+if [ $SERVER_READY -eq 1 ]; then
+    echo -e "${GREEN}✓ Server is ready!${NC}"
+    
+    # Open browser
+    echo ""
+    echo "→ Opening browser..."
+    
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        if command -v xdg-open &> /dev/null; then
+            xdg-open http://localhost:8001 &
+        elif command -v sensible-browser &> /dev/null; then
+            sensible-browser http://localhost:8001 &
+        else
+            echo -e "${YELLOW}⚠ Could not auto-open browser. Please visit: http://localhost:8001${NC}"
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        open http://localhost:8001 &
+    else
+        echo -e "${YELLOW}⚠ Could not auto-open browser. Please visit: http://localhost:8001${NC}"
+    fi
+    
+    # Success message
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════╗"
+    echo "║          Installation Complete! 🎉                         ║"
+    echo "╚════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo -e "${BLUE}Web UI:${NC}      http://localhost:8001"
+    echo -e "${BLUE}API Docs:${NC}    http://localhost:8001/docs"
+    echo ""
+    echo "Quick Start:"
+    echo "  1. Click 'Auto-Scan' in the web UI"
+    echo "  2. Review organization plans"
+    echo "  3. Click 'Approve' and 'Execute'"
+    echo ""
+    echo "CLI Usage (Advanced):"
+    echo "  • Activate venv:   source venv/bin/activate"
+    echo "  • Scan folder:     python organize.py scan ~/Downloads"
+    echo "  • Watch folder:    python organize.py watch ~/Downloads"
+    echo ""
+    echo "Server Management:"
+    echo "  • Restart server:  ./start.sh"
+    echo "  • Stop server:     kill $SERVER_PID"
+    echo ""
+    echo "Documentation:"
+    echo "  • README.md         - Overview"
+    echo "  • docs/USAGE.md     - Detailed guide"
+    echo "  • docs/PRIVACY.md   - Privacy info"
+    echo ""
+    echo -e "${GREEN}🔒 All processing is 100% local. Your files never leave your computer.${NC}"
+    echo ""
+    echo -e "${GREEN}Happy organizing! 📂${NC}"
+else
+    echo -e "${RED}✗ Server failed to start within 30 seconds${NC}"
+    echo ""
+    echo "Troubleshooting:"
+    echo "  1. Check if port 8001 is already in use:"
+    echo "     lsof -i :8001"
+    echo ""
+    echo "  2. Try starting manually:"
+    echo "     ./start.sh"
+    echo ""
+    echo "  3. Check server logs for errors"
+    exit 1
+fi
