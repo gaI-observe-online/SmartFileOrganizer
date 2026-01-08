@@ -9,11 +9,19 @@ This module provides a comprehensive error classification system with:
 
 import logging
 import traceback
+import os
 from enum import Enum
 from typing import Optional, Dict, Any, List
 
 
 logger = logging.getLogger(__name__)
+
+
+# Configurable help base URL - can be overridden via environment variable
+HELP_BASE_URL = os.getenv(
+    'SMARTFILE_HELP_BASE_URL',
+    'https://github.com/gaI-observe-online/SmartFileOrganizer/wiki'
+)
 
 
 class ErrorCategory(Enum):
@@ -170,7 +178,7 @@ class ConnectionError(OrganizerError):
                 "Check your network connection",
                 "Try again in a few moments",
             ],
-            help_url="https://github.com/gaI-observe-online/SmartFileOrganizer/wiki/Connection-Errors",
+            help_url=f"{HELP_BASE_URL}/Connection-Errors" if HELP_BASE_URL else None,
             original_error=original_error
         )
 
@@ -202,7 +210,7 @@ class AIProviderError(OrganizerError):
                 f"Try pulling the required model",
                 "Review the logs for more details",
             ],
-            help_url="https://github.com/gaI-observe-online/SmartFileOrganizer/wiki/AI-Provider-Errors",
+            help_url=f"{HELP_BASE_URL}/AI-Provider-Errors" if HELP_BASE_URL else None,
             original_error=original_error
         )
 
@@ -239,7 +247,7 @@ class FileSystemError(OrganizerError):
             severity=ErrorSeverity.ERROR,
             technical_details=technical_details,
             recovery_suggestions=recovery_suggestions,
-            help_url="https://github.com/gaI-observe-online/SmartFileOrganizer/wiki/Filesystem-Errors",
+            help_url=f"{HELP_BASE_URL}/Filesystem-Errors" if HELP_BASE_URL else None,
             original_error=original_error
         )
 
@@ -270,7 +278,7 @@ class ConfigurationError(OrganizerError):
                 "Edit config with: python organize.py config --edit",
                 "Refer to config.example.json for valid values",
             ],
-            help_url="https://github.com/gaI-observe-online/SmartFileOrganizer/wiki/Configuration",
+            help_url=f"{HELP_BASE_URL}/Configuration" if HELP_BASE_URL else None,
             original_error=None
         )
 
@@ -297,7 +305,7 @@ class ScanInterruptedError(OrganizerError):
                 "You can resume the scan from where it left off",
                 "Or start a new scan",
             ],
-            help_url="https://github.com/gaI-observe-online/SmartFileOrganizer/wiki/Recovery-Mode",
+            help_url=f"{HELP_BASE_URL}/Recovery-Mode" if HELP_BASE_URL else None,
             original_error=None
         )
 
@@ -327,7 +335,7 @@ class DatabaseError(OrganizerError):
                 "Ensure database is not corrupted",
                 "Try running with --safe-mode flag",
             ],
-            help_url="https://github.com/gaI-observe-online/SmartFileOrganizer/wiki/Database-Errors",
+            help_url=f"{HELP_BASE_URL}/Database-Errors" if HELP_BASE_URL else None,
             original_error=original_error
         )
 
@@ -354,10 +362,12 @@ def format_error_for_display(error: OrganizerError, show_technical: bool = False
             lines.append(f"  • {suggestion}")
         lines.append("")
     
-    # Add help URL
+    # Add help URL or fallback message
     if error.help_url:
         lines.append(f"📖 More help: {error.help_url}")
-        lines.append("")
+    elif not HELP_BASE_URL:
+        lines.append("📖 For help, run with --show-technical-details and report the issue")
+    lines.append("")
     
     # Add technical details if requested
     if show_technical and error.technical_details:

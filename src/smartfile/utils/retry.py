@@ -35,7 +35,8 @@ class RetryConfig:
         initial_delay: float = 1.0,
         max_delay: float = 30.0,
         exponential_base: float = 2.0,
-        jitter: bool = True
+        jitter: bool = True,
+        idempotent: bool = True
     ):
         """Initialize retry configuration.
         
@@ -45,12 +46,14 @@ class RetryConfig:
             max_delay: Maximum delay in seconds
             exponential_base: Base for exponential backoff
             jitter: Whether to add random jitter to delays
+            idempotent: Whether the operation is idempotent (safe to retry)
         """
         self.max_attempts = max_attempts
         self.initial_delay = initial_delay
         self.max_delay = max_delay
         self.exponential_base = exponential_base
         self.jitter = jitter
+        self.idempotent = idempotent
 
 
 def calculate_backoff_delay(
@@ -124,6 +127,9 @@ def retry_with_backoff(
 ):
     """Decorator for retrying functions with exponential backoff.
     
+    Only retries operations that are explicitly marked as idempotent
+    to prevent duplicate side effects.
+    
     Args:
         config: Retry configuration (uses defaults if None)
         on_retry: Callback called on retry (error, attempt, delay)
@@ -132,9 +138,9 @@ def retry_with_backoff(
         Decorated function
         
     Example:
-        @retry_with_backoff(RetryConfig(max_attempts=5))
+        @retry_with_backoff(RetryConfig(max_attempts=5, idempotent=True))
         def connect_to_service():
-            # ... connection logic
+            # ... connection logic (read-only, safe to retry)
             pass
     """
     if config is None:
@@ -145,7 +151,10 @@ def retry_with_backoff(
         def wrapper(*args, **kwargs) -> T:
             last_error = None
             
-            for attempt in range(config.max_attempts):
+            # If operation is not idempotent, only try once
+            max_attempts = config.max_attempts if config.idempotent else 1
+            
+            for attempt in range(max_attempts):
                 try:
                     return func(*args, **kwargs)
                 

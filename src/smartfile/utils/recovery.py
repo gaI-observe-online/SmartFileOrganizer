@@ -9,6 +9,8 @@ This module provides functionality to:
 
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 from datetime import datetime
@@ -94,8 +96,91 @@ class StateRecoveryManager:
         self.current_scan_file = state_dir / "current_scan.json"
         self.crash_log_file = state_dir / "crash.log"
         self.recovery_state_file = state_dir / "recovery_state.json"
+        self.lock_file = state_dir / "organizer.lock"
         
         self.recovery_mode = RecoveryState.NORMAL
+    
+    def _atomic_write_json(self, file_path: Path, data: Dict[str, Any]):
+        """Write JSON atomically to prevent corruption.
+        
+        Uses write-to-temp-then-rename pattern for atomicity.
+        
+        Args:
+            file_path: Target file path
+            data: Data to write
+        """
+        try:
+            # Write to temp file first
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=file_path.parent,
+                prefix=f".{file_path.name}.",
+                suffix=".tmp"
+            )
+            
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    json.dump(data, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())  # Force write to disk
+                
+                # Atomic rename
+                os.replace(temp_path, file_path)
+                
+            except Exception:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass
+                raise
+        
+        except Exception as e:
+            logger.error(f"Error writing {file_path} atomically: {e}")
+            raise
+    
+    def _try_acquire_lock(self) -> bool:
+        """Try to acquire process lock.
+        
+        Returns:
+            True if lock acquired, False if another process has it
+        """
+        try:
+            if self.lock_file.exists():
+                # Check if the process is still running
+                try:
+                    with open(self.lock_file, 'r') as f:
+                        pid = int(f.read().strip())
+                    
+                    # Try to check if process exists (Unix-like systems)
+                    try:
+                        os.kill(pid, 0)  # Signal 0 just checks existence
+                        return False  # Process still running
+                    except OSError:
+                        # Process doesn't exist, remove stale lock
+                        logger.warning(f"Removing stale lock file (PID {pid})")
+                        self.lock_file.unlink()
+                except (ValueError, IOError):
+                    # Corrupted lock file, remove it
+                    logger.warning("Removing corrupted lock file")
+                    self.lock_file.unlink()
+            
+            # Create lock file with our PID
+            with open(self.lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+            
+            return True
+        
+        except Exception as e:
+            logger.error(f"Error acquiring lock: {e}")
+            return False
+    
+    def _release_lock(self):
+        """Release process lock."""
+        try:
+            if self.lock_file.exists():
+                self.lock_file.unlink()
+        except Exception as e:
+            logger.error(f"Error releasing lock: {e}")
     
     def detect_crash(self) -> bool:
         """Detect if previous session crashed.
@@ -117,11 +202,31 @@ class StateRecoveryManager:
                         )
                         return True
             
+            except json.JSONDecodeError as e:
+                # Corrupted state file - archive it
+                logger.error(f"State file corrupted: {e}")
+                self._archive_corrupted_file(self.current_scan_file)
+                return True
+            
             except Exception as e:
                 logger.error(f"Error checking for crash: {e}")
                 return True
         
         return False
+    
+    def _archive_corrupted_file(self, file_path: Path):
+        """Archive a corrupted state file.
+        
+        Args:
+            file_path: Path to corrupted file
+        """
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archive_path = file_path.with_suffix(f".corrupt.{timestamp}.json")
+            file_path.rename(archive_path)
+            logger.info(f"Archived corrupted file to {archive_path}")
+        except Exception as e:
+            logger.error(f"Failed to archive corrupted file: {e}")
     
     def get_interrupted_scan(self) -> Optional[ScanState]:
         """Get interrupted scan state if any.
@@ -163,9 +268,7 @@ class StateRecoveryManager:
         )
         
         try:
-            with open(self.current_scan_file, 'w') as f:
-                json.dump(scan_state.to_dict(), f, indent=2)
-            
+            self._atomic_write_json(self.current_scan_file, scan_state.to_dict())
             logger.debug(f"Recorded scan start: {scan_id}")
         
         except Exception as e:
@@ -187,8 +290,7 @@ class StateRecoveryManager:
             
             data["processed_files"] = processed_files
             
-            with open(self.current_scan_file, 'w') as f:
-                json.dump(data, f, indent=2)
+            self._atomic_write_json(self.current_scan_file, data)
         
         except Exception as e:
             logger.error(f"Error updating scan progress: {e}")
@@ -206,8 +308,7 @@ class StateRecoveryManager:
                 
                 data["completed"] = True
                 
-                with open(self.current_scan_file, 'w') as f:
-                    json.dump(data, f, indent=2)
+                self._atomic_write_json(self.current_scan_file, data)
                 
                 logger.debug(f"Marked scan {scan_id} as completed")
         
@@ -224,11 +325,12 @@ class StateRecoveryManager:
         except Exception as e:
             logger.error(f"Error clearing scan state: {e}")
     
-    def record_crash(self, error: Exception):
+    def record_crash(self, error: Exception, redact_paths: bool = True):
         """Record crash information.
         
         Args:
             error: Exception that caused the crash
+            redact_paths: Whether to redact sensitive paths
         """
         import traceback
         
@@ -242,7 +344,16 @@ class StateRecoveryManager:
         # Add scan state if available
         scan_state = self.get_interrupted_scan()
         if scan_state:
-            crash_info["interrupted_scan"] = scan_state.to_dict()
+            scan_dict = scan_state.to_dict()
+            # Redact path if requested
+            if redact_paths:
+                scan_dict["path"] = self._redact_path(scan_dict["path"])
+            crash_info["interrupted_scan"] = scan_dict
+        
+        # Redact paths in traceback and error message if requested
+        if redact_paths:
+            crash_info["traceback"] = self._redact_paths_in_text(crash_info["traceback"])
+            crash_info["error_message"] = self._redact_paths_in_text(crash_info["error_message"])
         
         try:
             # Write each crash as a separate JSON line (JSON Lines format)
@@ -253,6 +364,61 @@ class StateRecoveryManager:
         
         except Exception as e:
             logger.error(f"Error recording crash: {e}")
+    
+    def _redact_path(self, path: str) -> str:
+        """Redact sensitive parts of a path.
+        
+        Args:
+            path: Path to redact
+            
+        Returns:
+            Redacted path
+        """
+        from pathlib import Path
+        try:
+            p = Path(path)
+            # Replace home directory with ~
+            home = Path.home()
+            if str(p).startswith(str(home)):
+                return str(p).replace(str(home), "~", 1)
+            # Replace username in path
+            parts = p.parts
+            if len(parts) > 2:
+                # Keep first 2 and last 2 parts, hash the middle
+                import hashlib
+                middle = "/".join(parts[2:-2]) if len(parts) > 4 else "/".join(parts[2:-1])
+                hashed = hashlib.sha256(middle.encode()).hexdigest()[:8]
+                return f"{parts[0]}/{parts[1]}/...{hashed}.../{parts[-1]}"
+            return path
+        except Exception:
+            return "<redacted>"
+    
+    def _redact_paths_in_text(self, text: str) -> str:
+        """Redact paths in text content.
+        
+        Args:
+            text: Text to redact
+            
+        Returns:
+            Redacted text
+        """
+        import re
+        from pathlib import Path
+        
+        try:
+            home = str(Path.home())
+            # Replace home directory references
+            text = text.replace(home, "~")
+            
+            # Redact common path patterns (Unix and Windows)
+            # /home/username/... or C:\Users\username\...
+            text = re.sub(r'/home/[^/]+', '/home/<user>', text)
+            text = re.sub(r'C:\\Users\\[^\\]+', r'C:\\Users\\<user>', text)
+            text = re.sub(r'/Users/[^/]+', '/Users/<user>', text)
+            
+            return text
+        except Exception:
+            return text
     
     def get_crash_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent crash history.
