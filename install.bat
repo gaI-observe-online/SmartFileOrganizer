@@ -99,7 +99,8 @@ echo cd /d "%%~dp0"
 echo call venv\Scripts\activate.bat
 echo.
 echo echo Starting SmartFileOrganizer server...
-echo start /B python -m uvicorn src.main:app --host 0.0.0.0 --port 8001
+REM Bind to localhost only for security (prevents external network access)
+echo start /B python -m uvicorn src.main:app --host 127.0.0.1 --port 8001
 echo.
 echo echo Server started!
 echo echo Web UI: http://localhost:8001
@@ -115,7 +116,8 @@ echo [OK] Start script created: start.bat
 REM Start server
 echo.
 echo Starting SmartFileOrganizer server...
-start /B python -m uvicorn src.main:app --host 0.0.0.0 --port 8001
+REM Bind to localhost only for security (prevents external network access)
+start /B python -m uvicorn src.main:app --host 127.0.0.1 --port 8001
 
 REM Wait for server to be ready
 echo.

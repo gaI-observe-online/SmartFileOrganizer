@@ -130,7 +130,8 @@ source venv/bin/activate
 
 # Start server
 echo "Starting SmartFileOrganizer server..."
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8001 &
+# Bind to localhost only for security (prevents external network access)
+python -m uvicorn src.main:app --host 127.0.0.1 --port 8001 &
 SERVER_PID=$!
 
 echo "Server started with PID: $SERVER_PID"
@@ -155,7 +156,8 @@ cd "$SCRIPT_DIR"
 source venv/bin/activate
 
 # Start server in background
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8001 > /dev/null 2>&1 &
+# Bind to localhost only for security (prevents external network access)
+python -m uvicorn src.main:app --host 127.0.0.1 --port 8001 > /dev/null 2>&1 &
 SERVER_PID=$!
 echo -e "${GREEN}✓ Server started (PID: $SERVER_PID)${NC}"
 
