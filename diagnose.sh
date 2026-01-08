@@ -15,10 +15,11 @@ NC='\033[0m'
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$HOME/.organizer"
 VENV_DIR="$INSTALL_DIR/venv"
-DIAG_OUTPUT="/tmp/smartfile-diagnostics-$(date +%Y%m%d-%H%M%S).txt"
+DIAG_OUTPUT="${TMPDIR:-/tmp}/smartfile-diagnostics-$(date +%Y%m%d-%H%M%S).txt"
 
-# Start diagnostic output
+# Start diagnostic output (restrictive permissions)
 exec > >(tee "$DIAG_OUTPUT") 2>&1
+chmod 600 "$DIAG_OUTPUT" 2>/dev/null || true
 
 print_header() {
     echo ""

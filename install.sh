@@ -8,14 +8,21 @@ set -euo pipefail  # Exit on error, undefined vars, pipe failures
 # CONFIGURATION
 # ============================================================================
 
-SCRIPT_VERSION="2.0.0"
+SCRIPT_VERSION="2.1.0"
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$HOME/.organizer"
 LOG_FILE="$CONFIG_DIR/install.log"
 STATE_FILE="$CONFIG_DIR/install.state"
+STATE_FILE_TMP="$CONFIG_DIR/install.state.tmp"
 VENV_DIR="$INSTALL_DIR/venv"
-MIN_DISK_SPACE_GB=10
+MIN_DISK_SPACE_GB=2  # Realistic requirement for Python CLI tool
 MIN_PYTHON_VERSION="3.8"
+
+# CLI flags
+OFFLINE_MODE=false
+VERBOSE_MODE=false
+DRY_RUN_MODE=false
+NO_NETWORK_CHECK=false
 
 # Colors
 RED='\033[0;31m'
@@ -31,6 +38,21 @@ INSTALLED_STEPS=()
 # LOGGING FUNCTIONS
 # ============================================================================
 
+# Patterns to redact from logs
+REDACT_PATTERNS=(
+    "OPENAI_API_KEY" "ANTHROPIC_API_KEY" "OLLAMA_API_KEY"
+    "HTTP_PROXY" "HTTPS_PROXY" "http_proxy" "https_proxy"
+    "TOKEN" "SECRET" "PASSWORD" "API_KEY"
+)
+
+redact_sensitive() {
+    local text="$1"
+    for pattern in "${REDACT_PATTERNS[@]}"; do
+        text=$(echo "$text" | sed -E "s/${pattern}=[^ ]*/${pattern}=***REDACTED***/g")
+    done
+    echo "$text"
+}
+
 setup_logging() {
     mkdir -p "$CONFIG_DIR" || {
         echo "ERROR: Cannot create config directory: $CONFIG_DIR" >&2
@@ -44,19 +66,23 @@ setup_logging() {
 }
 
 log_info() {
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [INFO] $*" | tee -a "$LOG_FILE"
+    local msg=$(redact_sensitive "$*")
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [INFO] $msg" | tee -a "$LOG_FILE"
 }
 
 log_error() {
-    echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] [ERROR] $*${NC}" | tee -a "$LOG_FILE"
+    local msg=$(redact_sensitive "$*")
+    echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] [ERROR] $msg${NC}" | tee -a "$LOG_FILE"
 }
 
 log_warn() {
-    echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] [WARN] $*${NC}" | tee -a "$LOG_FILE"
+    local msg=$(redact_sensitive "$*")
+    echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] [WARN] $msg${NC}" | tee -a "$LOG_FILE"
 }
 
 log_success() {
-    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] [SUCCESS] $*${NC}" | tee -a "$LOG_FILE"
+    local msg=$(redact_sensitive "$*")
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] [SUCCESS] $msg${NC}" | tee -a "$LOG_FILE"
 }
 
 # ============================================================================
@@ -65,7 +91,9 @@ log_success() {
 
 save_state() {
     local step="$1"
-    echo "$step" >> "$STATE_FILE"
+    # Use atomic write: write to temp file, then move
+    echo "$step" >> "$STATE_FILE_TMP"
+    mv "$STATE_FILE_TMP" "$STATE_FILE"
     INSTALLED_STEPS+=("$step")
     log_info "Saved state: $step"
 }
@@ -78,7 +106,7 @@ load_state() {
 }
 
 clear_state() {
-    rm -f "$STATE_FILE"
+    rm -f "$STATE_FILE" "$STATE_FILE_TMP"
     INSTALLED_STEPS=()
     log_info "Cleared installation state"
 }
@@ -222,32 +250,49 @@ check_system_dependencies() {
     log_info "Checking system dependencies..."
     
     local missing_deps=()
+    local python_cmd=""
     
-    # Check Python 3
-    if ! command -v python3 &> /dev/null; then
+    # Find Python - prefer python3, fallback to python
+    if command -v python3 &> /dev/null; then
+        python_cmd="python3"
+    elif command -v python &> /dev/null; then
+        # Check if 'python' is Python 3
+        local py_version=$(python -c 'import sys; print(sys.version_info[0])' 2>/dev/null || echo "0")
+        if [ "$py_version" = "3" ]; then
+            python_cmd="python"
+        fi
+    fi
+    
+    if [ -z "$python_cmd" ]; then
         missing_deps+=("python3")
     else
         echo -ne "→ Python 3... "
-        local python_version=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+        local python_version=$($python_cmd -c 'import sys; print(".".join(map(str, sys.version_info[:2])))' 2>/dev/null)
+        if [ -z "$python_version" ]; then
+            log_error "✗ Cannot determine Python version"
+            exit 1
+        fi
+        
         if [ "$(printf '%s\n' "$MIN_PYTHON_VERSION" "$python_version" | sort -V | head -n1)" != "$MIN_PYTHON_VERSION" ]; then
             log_error "✗ Python $python_version found, but Python $MIN_PYTHON_VERSION+ is required"
             exit 1
         fi
-        log_success "✓ Python $python_version"
+        log_success "✓ Python $python_version ($python_cmd)"
+        
+        # Verify venv works
+        if ! $python_cmd -m venv --help &> /dev/null; then
+            log_error "✗ Python venv module not available"
+            missing_deps+=("python3-venv")
+        else
+            log_success "✓ venv module available"
+        fi
     fi
     
     # Check pip
-    if ! command -v pip3 &> /dev/null && ! python3 -m pip --version &> /dev/null; then
+    if ! command -v pip3 &> /dev/null && ! python3 -m pip --version &> /dev/null 2>&1; then
         missing_deps+=("pip3")
     else
         log_success "✓ pip available"
-    fi
-    
-    # Check venv module
-    if ! python3 -m venv --help &> /dev/null; then
-        missing_deps+=("python3-venv")
-    else
-        log_success "✓ venv module available"
     fi
     
     # Check curl
@@ -336,11 +381,12 @@ check_disk_space() {
                 ;;
         esac
         
-        log_info "Available disk space: ${available_gb}GB"
+        log_info "Available disk space: ${available_gb}GB on install directory filesystem"
         
         if [ "$available_gb" -lt "$MIN_DISK_SPACE_GB" ]; then
             log_warn "⚠ Warning: Less than ${MIN_DISK_SPACE_GB}GB free (${available_gb}GB available)"
-            echo "   This may cause issues with AI models and file processing."
+            echo "   Installation requires at least ${MIN_DISK_SPACE_GB}GB for base install."
+            echo "   Additional space needed for AI models (up to 8GB depending on models)."
             read -p "   Continue anyway? (y/N): " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -355,20 +401,46 @@ check_disk_space() {
 }
 
 check_network_connectivity() {
-    log_info "Checking network connectivity..."
-    
-    # Check if we can reach PyPI
-    if curl -s --max-time 5 -I https://pypi.org > /dev/null 2>&1; then
-        log_success "✓ PyPI reachable"
-    else
-        log_warn "⚠ Cannot reach PyPI (pip install may fail)"
+    if [ "$NO_NETWORK_CHECK" = true ] || [ "$OFFLINE_MODE" = true ]; then
+        log_info "Network check skipped (offline mode)"
+        return 0
     fi
     
-    # Check if we can reach Ollama
-    if curl -s --max-time 5 -I https://ollama.com > /dev/null 2>&1; then
+    log_info "Checking network connectivity..."
+    
+    local network_ok=true
+    
+    # Check if we can reach PyPI
+    if curl -s --connect-timeout 2 --max-time 5 -I https://pypi.org > /dev/null 2>&1; then
+        log_success "✓ PyPI reachable"
+    else
+        log_warn "⚠ Cannot reach PyPI"
+        network_ok=false
+    fi
+    
+    # Check if we can reach Ollama (optional)
+    if curl -s --connect-timeout 2 --max-time 5 -I https://ollama.com > /dev/null 2>&1; then
         log_success "✓ Ollama site reachable"
     else
         log_warn "⚠ Cannot reach ollama.com"
+    fi
+    
+    # If network appears down, offer guidance
+    if [ "$network_ok" = false ]; then
+        echo ""
+        log_warn "Network connectivity issues detected."
+        log_warn "This may be due to firewall rules or offline environment."
+        log_warn "Installation may still succeed if dependencies are cached locally."
+        echo ""
+        
+        if [ "$OFFLINE_MODE" = false ]; then
+            read -p "Continue installation? (Y/n): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Nn]$ ]]; then
+                echo "Installation cancelled. Run with --offline to skip network checks."
+                exit 0
+            fi
+        fi
     fi
 }
 
@@ -429,7 +501,7 @@ install_dependencies() {
 }
 
 install_ollama() {
-    log_info "Checking for Ollama..."
+    log_info "Checking for Ollama (optional for AI features)..."
     
     if command -v ollama &> /dev/null; then
         log_success "✓ Ollama already installed"
@@ -439,33 +511,42 @@ install_ollama() {
             log_success "✓ Ollama service running"
         else
             log_warn "⚠ Ollama installed but not running"
-            echo "  Please start Ollama: 'ollama serve' or system service"
+            echo "  Start Ollama to enable AI features: 'ollama serve' or system service"
         fi
     else
-        log_warn "⚠ Ollama not found"
+        log_warn "⚠ Ollama not found - AI features will be limited"
+        echo ""
+        echo "Ollama is optional but recommended for local AI processing."
+        echo "You can install it later from: https://ollama.com/download"
+        echo ""
         
-        case "$(uname -s)" in
-            Linux*)
-                echo ""
-                echo "Installing Ollama..."
-                curl -fsSL https://ollama.com/install.sh | sh
-                log_success "✓ Ollama installed"
-                
-                # Try to start Ollama service
-                if systemctl is-active --quiet ollama 2>/dev/null; then
-                    log_success "✓ Ollama service is running"
-                else
-                    log_warn "⚠ Start Ollama with: sudo systemctl start ollama"
-                fi
-                ;;
-            Darwin*)
-                log_warn "Please install Ollama manually:"
-                echo "  1. Visit https://ollama.com/download"
-                echo "  2. Download and install Ollama for macOS"
-                echo "  3. Run this installer again"
-                exit 1
-                ;;
-        esac
+        if [ "$OFFLINE_MODE" = false ]; then
+            read -p "Install Ollama now? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                case "$(uname -s)" in
+                    Linux*)
+                        echo "Installing Ollama..."
+                        curl -fsSL https://ollama.com/install.sh | sh
+                        log_success "✓ Ollama installed"
+                        
+                        # Try to start Ollama service
+                        if systemctl is-active --quiet ollama 2>/dev/null; then
+                            log_success "✓ Ollama service is running"
+                        else
+                            log_warn "⚠ Start Ollama with: sudo systemctl start ollama"
+                        fi
+                        ;;
+                    Darwin*)
+                        log_warn "Please install Ollama manually:"
+                        echo "  1. Visit https://ollama.com/download"
+                        echo "  2. Download and install Ollama for macOS"
+                        ;;
+                esac
+            else
+                log_info "Skipping Ollama installation"
+            fi
+        fi
     fi
 }
 
@@ -648,10 +729,93 @@ run_health_checks() {
 }
 
 # ============================================================================
+# HELP AND ARGUMENT PARSING
+# ============================================================================
+
+show_help() {
+    cat << 'EOF'
+SmartFileOrganizer Installation Script v2.1.0
+
+USAGE:
+    ./install.sh [OPTIONS]
+
+OPTIONS:
+    -h, --help              Show this help message
+    -o, --offline           Skip network checks, assume offline/cached install
+    -v, --verbose           Enable verbose output
+    -n, --no-network-check  Skip network connectivity validation
+    --dry-run               Show what would be installed without making changes
+
+EXAMPLES:
+    # Standard installation
+    ./install.sh
+    
+    # Offline installation (no network checks)
+    ./install.sh --offline
+    
+    # Skip network validation
+    ./install.sh --no-network-check
+
+REQUIREMENTS:
+    - Python 3.8+
+    - 2GB+ free disk space
+    - Internet connection (unless --offline)
+
+DOCUMENTATION:
+    See docs/INSTALLATION.md for detailed installation guide
+    See docs/TROUBLESHOOTING.md for common issues
+
+For help, visit: https://github.com/gaI-observe-online/SmartFileOrganizer/issues
+EOF
+    exit 0
+}
+
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_help
+                ;;
+            -o|--offline)
+                OFFLINE_MODE=true
+                NO_NETWORK_CHECK=true
+                shift
+                ;;
+            -v|--verbose)
+                VERBOSE_MODE=true
+                shift
+                ;;
+            -n|--no-network-check)
+                NO_NETWORK_CHECK=true
+                shift
+                ;;
+            --dry-run)
+                DRY_RUN_MODE=true
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Run './install.sh --help' for usage information"
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# ============================================================================
 # MAIN INSTALLATION FLOW
 # ============================================================================
 
 main() {
+    # Parse command-line arguments
+    parse_arguments "$@"
+    
+    # Dry run mode
+    if [ "$DRY_RUN_MODE" = true ]; then
+        echo "DRY RUN MODE - No changes will be made"
+        echo ""
+    fi
+    
     # Initialize
     print_header
     setup_logging
@@ -659,6 +823,13 @@ main() {
     
     # Pre-flight checks
     run_preflight_checks
+    
+    # Exit if dry run
+    if [ "$DRY_RUN_MODE" = true ]; then
+        echo ""
+        echo "Dry run complete. Run without --dry-run to install."
+        exit 0
+    fi
     
     # Installation
     echo "═══════════════════════════════════════════════════════════"
@@ -687,13 +858,17 @@ main() {
     echo ""
     echo "Quick Start:"
     echo "  1. Activate virtual environment:  source venv/bin/activate"
-    echo "  2. Scan a folder:                 python organize.py scan ~/Downloads"
-    echo "  3. Watch a folder:                python organize.py watch ~/Downloads"
+    echo "  2. Run health check:               python organize.py --help"
+    echo "  3. Scan a folder:                  python organize.py scan ~/Downloads"
+    echo ""
+    echo "Troubleshooting:"
+    echo "  • Run diagnostics:  ./diagnose.sh"
+    echo "  • View logs:        cat ~/.organizer/install.log"
     echo ""
     echo "Documentation:"
-    echo "  • README.md         - Quick overview"
-    echo "  • docs/USAGE.md     - Detailed usage guide"
-    echo "  • docs/PRIVACY.md   - Privacy information"
+    echo "  • README.md                - Quick overview"
+    echo "  • docs/INSTALLATION.md     - Installation guide"
+    echo "  • docs/TROUBLESHOOTING.md  - Common issues"
     echo ""
     echo "Installation log: $LOG_FILE"
     echo ""
