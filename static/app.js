@@ -6,6 +6,9 @@
 // API Base URL
 const API_BASE = 'http://localhost:8001';
 
+// CSRF token storage
+let csrfToken = null;
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     console.log('SmartFileOrganizer UI loaded');
@@ -13,6 +16,24 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPlans();
     setupEventListeners();
 });
+
+/**
+ * Get fresh CSRF token from server
+ */
+async function getCsrfToken() {
+    try {
+        const response = await fetch(`${API_BASE}/health`);
+        if (response.ok) {
+            const data = await response.json();
+            csrfToken = data.csrf_token;
+            console.log('CSRF token acquired');
+            return csrfToken;
+        }
+    } catch (error) {
+        console.error('Failed to get CSRF token:', error);
+    }
+    return null;
+}
 
 /**
  * Check if server is reachable
@@ -23,6 +44,7 @@ async function checkServerStatus() {
         
         if (response.ok) {
             const data = await response.json();
+            csrfToken = data.csrf_token;  // Store CSRF token
             updateStatusIndicator('online');
             console.log('Server status:', data);
         } else {
@@ -282,12 +304,28 @@ async function approvePlan(planId) {
     showLoading('Approving plan...');
     
     try {
+        // Get fresh CSRF token if needed
+        if (!csrfToken) {
+            await getCsrfToken();
+        }
+        
         const response = await fetch(`${API_BASE}/api/plans/${planId}/approve`, {
-            method: 'POST'
+            method: 'POST',
+            headers: {
+                'X-CSRF-Token': csrfToken
+            }
         });
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
+            
+            // If CSRF token expired, get new one and retry
+            if (response.status === 403 && errorData.detail && errorData.detail.includes('CSRF')) {
+                console.log('CSRF token expired, retrying with fresh token...');
+                await getCsrfToken();
+                return approvePlan(planId);  // Retry
+            }
+            
             throw new Error(errorData.detail || `HTTP ${response.status}`);
         }
         
@@ -296,8 +334,8 @@ async function approvePlan(planId) {
         
         showSuccessMessage('Plan approved!');
         
-        // Refresh plans
-        await loadPlans();
+        // Refresh plans and get new CSRF token
+        await Promise.all([loadPlans(), getCsrfToken()]);
         
     } catch (error) {
         console.error('Approve error:', error);
@@ -318,12 +356,28 @@ async function executePlan(planId) {
     showLoading('Executing plan... This may take a moment.');
     
     try {
+        // Get fresh CSRF token if needed
+        if (!csrfToken) {
+            await getCsrfToken();
+        }
+        
         const response = await fetch(`${API_BASE}/api/plans/${planId}/execute`, {
-            method: 'POST'
+            method: 'POST',
+            headers: {
+                'X-CSRF-Token': csrfToken
+            }
         });
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
+            
+            // If CSRF token expired, get new one and retry
+            if (response.status === 403 && errorData.detail && errorData.detail.includes('CSRF')) {
+                console.log('CSRF token expired, retrying with fresh token...');
+                await getCsrfToken();
+                return executePlan(planId);  // Retry
+            }
+            
             throw new Error(errorData.detail || `HTTP ${response.status}`);
         }
         
@@ -332,8 +386,8 @@ async function executePlan(planId) {
         
         showSuccessMessage(`Plan executed! Moved ${result.files_moved || 0} files`);
         
-        // Refresh plans
-        await loadPlans();
+        // Refresh plans and get new CSRF token
+        await Promise.all([loadPlans(), getCsrfToken()]);
         
     } catch (error) {
         console.error('Execute error:', error);
@@ -354,12 +408,28 @@ async function rollbackPlan(planId) {
     showLoading('Rolling back plan...');
     
     try {
+        // Get fresh CSRF token if needed
+        if (!csrfToken) {
+            await getCsrfToken();
+        }
+        
         const response = await fetch(`${API_BASE}/api/plans/${planId}/rollback`, {
-            method: 'POST'
+            method: 'POST',
+            headers: {
+                'X-CSRF-Token': csrfToken
+            }
         });
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
+            
+            // If CSRF token expired, get new one and retry
+            if (response.status === 403 && errorData.detail && errorData.detail.includes('CSRF')) {
+                console.log('CSRF token expired, retrying with fresh token...');
+                await getCsrfToken();
+                return rollbackPlan(planId);  // Retry
+            }
+            
             throw new Error(errorData.detail || `HTTP ${response.status}`);
         }
         
@@ -368,8 +438,8 @@ async function rollbackPlan(planId) {
         
         showSuccessMessage(`Plan rolled back successfully! Restored ${result.files_restored || 0} files`);
         
-        // Refresh plans
-        await loadPlans();
+        // Refresh plans and get new CSRF token
+        await Promise.all([loadPlans(), getCsrfToken()]);
         
     } catch (error) {
         console.error('Rollback error:', error);

@@ -5,15 +5,16 @@ import logging
 import os
 import sys
 import shutil
+import secrets
 from pathlib import Path
 from typing import Dict, List, Optional
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Add src to path so we can import smartfile
 sys.path.insert(0, str(Path(__file__).parent))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,6 +59,10 @@ database: Optional[Database] = None
 audit_trail: Optional[AuditTrail] = None
 organizer: Optional[Organizer] = None
 rollback_manager: Optional[RollbackManager] = None
+
+# CSRF token storage (in-memory for v1, move to Redis/database for production)
+csrf_tokens: Dict[str, datetime] = {}
+CSRF_TOKEN_EXPIRY_MINUTES = 60
 
 # Pydantic models for API
 class ScanRequest(BaseModel):
@@ -152,12 +157,55 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint with CSRF token generation."""
+    # Generate new CSRF token
+    csrf_token = secrets.token_urlsafe(32)
+    csrf_tokens[csrf_token] = datetime.now() + timedelta(minutes=CSRF_TOKEN_EXPIRY_MINUTES)
+    
+    # Clean up expired tokens
+    _cleanup_expired_tokens()
+    
     return {
         "status": "healthy",
         "version": "2.0.0",
-        "ai_available": organizer.ai_provider.available if organizer and organizer.ai_provider else False
+        "ai_available": organizer.ai_provider.available if organizer and organizer.ai_provider else False,
+        "csrf_token": csrf_token  # SECURITY: Token for state-changing operations
     }
+
+
+def _cleanup_expired_tokens():
+    """Remove expired CSRF tokens."""
+    now = datetime.now()
+    expired = [token for token, expiry in csrf_tokens.items() if expiry < now]
+    for token in expired:
+        del csrf_tokens[token]
+
+
+def _verify_csrf_token(token: Optional[str]) -> None:
+    """Verify CSRF token is valid and not expired."""
+    if not token:
+        raise HTTPException(
+            status_code=403,
+            detail="CSRF token required for state-changing operations"
+        )
+    
+    if token not in csrf_tokens:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid or expired CSRF token. Please refresh the page."
+        )
+    
+    # Check expiration
+    if csrf_tokens[token] < datetime.now():
+        del csrf_tokens[token]
+        raise HTTPException(
+            status_code=403,
+            detail="CSRF token expired. Please refresh the page."
+        )
+    
+    # Token is valid - consume it (one-time use)
+    del csrf_tokens[token]
+    logger.info(f"CSRF token verified and consumed")
 
 
 @app.get("/api/plans")
@@ -335,8 +383,11 @@ async def auto_scan() -> Dict:
 
 
 @app.post("/api/plans/{plan_id}/approve")
-async def approve_plan(plan_id: str) -> Dict:
-    """Approve an organization plan."""
+async def approve_plan(plan_id: str, x_csrf_token: Optional[str] = Header(None)) -> Dict:
+    """Approve an organization plan (CSRF protected)."""
+    # SECURITY: Verify CSRF token
+    _verify_csrf_token(x_csrf_token)
+    
     try:
         proposal_id = int(plan_id)
         
@@ -347,6 +398,8 @@ async def approve_plan(plan_id: str) -> Dict:
         
         # Update approval status
         database.update_proposal_approval(proposal_id, True)
+        
+        logger.info(f"Plan {plan_id} approved by user")
         
         return {
             "id": plan_id,
@@ -364,8 +417,11 @@ async def approve_plan(plan_id: str) -> Dict:
 
 
 @app.post("/api/plans/{plan_id}/execute")
-async def execute_plan(plan_id: str) -> Dict:
-    """Execute an organization plan with integrity verification."""
+async def execute_plan(plan_id: str, x_csrf_token: Optional[str] = Header(None)) -> Dict:
+    """Execute an organization plan with integrity verification (CSRF protected)."""
+    # SECURITY: Verify CSRF token
+    _verify_csrf_token(x_csrf_token)
+    
     try:
         proposal_id = int(plan_id)
         
@@ -461,8 +517,11 @@ async def execute_plan(plan_id: str) -> Dict:
 
 
 @app.post("/api/plans/{plan_id}/rollback")
-async def rollback_plan(plan_id: str) -> Dict:
-    """Rollback an executed plan."""
+async def rollback_plan(plan_id: str, x_csrf_token: Optional[str] = Header(None)) -> Dict:
+    """Rollback an executed plan (CSRF protected)."""
+    # SECURITY: Verify CSRF token
+    _verify_csrf_token(x_csrf_token)
+    
     try:
         proposal_id = int(plan_id)
         
@@ -471,6 +530,8 @@ async def rollback_plan(plan_id: str) -> Dict:
         
         if not success:
             raise HTTPException(status_code=400, detail="Rollback failed")
+        
+        logger.info(f"Plan {plan_id} rolled back: {files_restored} files restored")
         
         return {
             "id": plan_id,
