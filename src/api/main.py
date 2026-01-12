@@ -4,6 +4,7 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,11 +18,28 @@ from .websocket import router as websocket_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler for startup and shutdown."""
+    # Startup
+    web_build_dir = Path(__file__).parent.parent.parent / "web" / "dist"
+    logger.info("SmartFileOrganizer API starting up...")
+    logger.info(f"Web UI directory: {web_build_dir}")
+    logger.info(f"Web UI built: {web_build_dir.exists()}")
+    
+    yield
+    
+    # Shutdown
+    logger.info("SmartFileOrganizer API shutting down...")
+
+
 # Create FastAPI app
 app = FastAPI(
     title="SmartFileOrganizer API",
     description="REST API for SmartFileOrganizer web interface",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS for localhost
@@ -69,17 +87,3 @@ if web_build_dir.exists():
         if index_file.exists():
             return FileResponse(index_file)
         raise HTTPException(status_code=404, detail="Web UI not built")
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Run on application startup."""
-    logger.info("SmartFileOrganizer API starting up...")
-    logger.info(f"Web UI directory: {web_build_dir}")
-    logger.info(f"Web UI built: {web_build_dir.exists()}")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Run on application shutdown."""
-    logger.info("SmartFileOrganizer API shutting down...")
