@@ -146,9 +146,9 @@ Options:
 #### 5. Dependencies
 
 **Python (added to requirements.txt):**
-- `fastapi==0.109.0` - Web framework
+- `fastapi==0.109.1` - Web framework (patched for ReDoS vulnerability)
 - `uvicorn[standard]==0.27.0` - ASGI server
-- `python-multipart==0.0.6` - Form data parsing
+- `python-multipart==0.0.18` - Form data parsing (patched for DoS vulnerabilities)
 - `websockets==12.0` - WebSocket support
 - `psutil==5.9.8` - System monitoring
 - `requests==2.31.0` - HTTP client
