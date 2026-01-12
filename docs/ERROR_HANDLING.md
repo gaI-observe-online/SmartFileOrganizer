@@ -2,6 +2,36 @@
 
 SmartFileOrganizer provides comprehensive error handling with user-friendly messages and recovery workflows.
 
+## Error Code Stability Policy
+
+**IMPORTANT:** Error codes are stable and immutable once released.
+
+- **Error codes E001-E006 are STABLE**: Their meaning will never change
+- **New semantics require new codes**: If you need different behavior, add E007+, don't reuse E002
+- **Codes can be deprecated but never repurposed**: This ensures documentation links, support workflows, and telemetry remain consistent across versions
+- **Why this matters**: Users and enterprise deployments rely on stable error codes for automation, logging, and support workflows
+
+### Adding New Error Codes
+
+When introducing a new error type:
+1. Assign the next available sequential code (E007, E008, etc.)
+2. Create the error class in `src/smartfile/utils/errors.py`
+3. Document it in this file following the existing format
+4. Update the error code list below
+5. Never reuse or repurpose existing codes
+
+### Current Error Codes
+
+- **E001**: Connection Error (network connectivity to services)
+- **E002**: AI Provider Error (AI service failures)
+- **E003**: Filesystem Error (file/directory operations)
+- **E004**: Configuration Error (invalid config)
+- **E005**: Scan Interrupted (incomplete scan)
+- **E006**: Database Error (database operations)
+- **E007+**: Reserved for future use
+
+---
+
 ## Error Categories
 
 ### User-Actionable Errors

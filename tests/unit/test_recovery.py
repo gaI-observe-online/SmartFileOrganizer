@@ -308,12 +308,23 @@ def test_reconstruct_incident(recovery_manager):
         completed=False,
     )
     
+    # Test with redaction (default)
     reconstruction = recovery_manager.reconstruct_incident(scan_state)
     
     assert "Scan ID: 1" in reconstruction
-    assert "/test/path" in reconstruction
+    assert "Path:" in reconstruction
+    # Path should be redacted by default
+    assert "Paths are redacted for privacy" in reconstruction
     assert "10/20" in reconstruction
     assert "50.0%" in reconstruction
+    
+    # Test without redaction
+    reconstruction_no_redact = recovery_manager.reconstruct_incident(scan_state, redact_paths=False)
+    
+    assert "Scan ID: 1" in reconstruction_no_redact
+    assert "/test/path" in reconstruction_no_redact
+    # Should not have redaction notice
+    assert "Paths are redacted for privacy" not in reconstruction_no_redact
 
 
 def test_reconstruct_incident_with_crash(recovery_manager):

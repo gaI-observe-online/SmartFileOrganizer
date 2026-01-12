@@ -35,8 +35,9 @@ logger = logging.getLogger(__name__)
 @click.option('--config', type=click.Path(), help='Path to config file')
 @click.option('--verbose', is_flag=True, help='Enable verbose logging')
 @click.option('--safe-mode', is_flag=True, help='Run in safe mode (minimal functionality)')
+@click.option('--show-technical-details', is_flag=True, help='Show technical details including full paths')
 @click.pass_context
-def cli(ctx, config, verbose, safe_mode):
+def cli(ctx, config, verbose, safe_mode, show_technical_details):
     """SmartFileOrganizer - AI-powered intelligent file organization."""
     # Setup logging
     level = logging.DEBUG if verbose else logging.INFO
@@ -47,7 +48,11 @@ def cli(ctx, config, verbose, safe_mode):
     
     # Initialize configuration
     config_path = Path(config) if config else None
-    ctx.obj = {'config': Config(config_path), 'safe_mode': safe_mode}
+    ctx.obj = {
+        'config': Config(config_path),
+        'safe_mode': safe_mode,
+        'show_technical_details': show_technical_details
+    }
     
     # Ensure .organizer directory exists
     ctx.obj['config'].ensure_organizer_dir()
@@ -63,8 +68,11 @@ def cli(ctx, config, verbose, safe_mode):
         if interrupted_scan:
             console.print("[yellow]⚠️  Previous session did not complete normally[/yellow]\n")
             
-            # Show incident reconstruction
-            incident = recovery_mgr.reconstruct_incident(interrupted_scan)
+            # Show incident reconstruction (redacted by default, unless --show-technical-details)
+            incident = recovery_mgr.reconstruct_incident(
+                interrupted_scan,
+                redact_paths=not show_technical_details
+            )
             console.print(Panel(incident, title="Crash Detected", border_style="yellow"))
             
             # Offer recovery options
@@ -103,12 +111,12 @@ def cli(ctx, config, verbose, safe_mode):
 @click.option('--batch', is_flag=True, help='Batch mode with minimal interaction')
 @click.option('--auto-approve-threshold', type=int, help='Auto-approve threshold (0-100)')
 @click.option('--recursive', is_flag=True, help='Scan recursively')
-@click.option('--show-technical-details', is_flag=True, help='Show technical error details')
 @click.pass_context
-def scan(ctx, path, dry_run, batch, auto_approve_threshold, recursive, show_technical_details):
+def scan(ctx, path, dry_run, batch, auto_approve_threshold, recursive):
     """Scan and organize files in a directory."""
     config = ctx.obj['config']
     recovery_mgr = ctx.obj['recovery_manager']
+    show_technical_details = ctx.obj.get('show_technical_details', False)
     
     try:
         # Override config if specified

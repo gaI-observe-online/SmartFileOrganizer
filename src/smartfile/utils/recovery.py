@@ -502,21 +502,25 @@ class StateRecoveryManager:
         
         return self.recovery_mode == RecoveryState.SAFE_MODE
     
-    def reconstruct_incident(self, scan_state: ScanState) -> str:
+    def reconstruct_incident(self, scan_state: ScanState, redact_paths: bool = True) -> str:
         """Reconstruct what happened during an incident.
         
         Args:
             scan_state: Scan state to reconstruct
+            redact_paths: Whether to redact sensitive paths (default: True)
             
         Returns:
             Human-readable incident reconstruction
         """
+        # Redact path if requested (default)
+        display_path = self._redact_path(scan_state.path) if redact_paths else scan_state.path
+        
         lines = [
             "📋 Incident Reconstruction",
             "=" * 50,
             "",
             f"Scan ID: {scan_state.scan_id}",
-            f"Path: {scan_state.path}",
+            f"Path: {display_path}",
             f"Started: {scan_state.started_at}",
             f"Progress: {scan_state.processed_files}/{scan_state.total_files} files",
             "",
@@ -531,11 +535,16 @@ class StateRecoveryManager:
         crashes = self.get_crash_history(limit=1)
         if crashes:
             crash = crashes[0]
+            error_msg = crash.get('error_message', 'No message')
+            # Redact error message if requested
+            if redact_paths:
+                error_msg = self._redact_paths_in_text(error_msg)
+            
             lines.extend([
                 "",
                 "Last Error:",
                 f"  Type: {crash.get('error_type', 'Unknown')}",
-                f"  Message: {crash.get('error_message', 'No message')}",
+                f"  Message: {error_msg}",
                 f"  Time: {crash.get('timestamp', 'Unknown')}",
             ])
         
@@ -546,5 +555,12 @@ class StateRecoveryManager:
             "  2. Start a new scan",
             "  3. Enter safe mode for diagnostics",
         ])
+        
+        # Add note about full paths if redacted
+        if redact_paths:
+            lines.extend([
+                "",
+                "💡 Paths are redacted for privacy. Use --show-technical-details to see full paths.",
+            ])
         
         return "\n".join(lines)

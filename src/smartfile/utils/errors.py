@@ -5,6 +5,20 @@ This module provides a comprehensive error classification system with:
 - Error codes with help article links
 - Progressive disclosure of technical details
 - Support for error recovery workflows
+
+## Error Code Stability Policy
+
+Error codes (E001-E006) are STABLE and IMMUTABLE once released:
+- Once an error code is assigned, its meaning MUST NOT change
+- New error semantics require new error codes (E007+)
+- This ensures documentation links, support workflows, and telemetry remain consistent
+- Error codes can be deprecated but never repurposed
+
+To add a new error type:
+1. Assign the next available code (E007, E008, etc.)
+2. Create a new error class following the pattern
+3. Document the code in docs/ERROR_HANDLING.md
+4. Update this comment with the new code
 """
 
 import logging
