@@ -191,6 +191,11 @@ class Config:
                 "suggest_threshold": 10,
                 "auto_apply_threshold": 20,
                 "min_confidence": 0.80
+            },
+            "web": {
+                "port": 8001,
+                "host": "127.0.0.1",
+                "auto_open_browser": True
             }
         }
     

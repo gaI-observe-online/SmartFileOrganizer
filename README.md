@@ -8,6 +8,7 @@ SmartFileOrganizer is a production-ready, privacy-first file organization tool t
 
 - 🤖 **AI-Powered Organization** - Uses Ollama (llama3.3/qwen2.5) for intelligent file categorization
 - 🔒 **Privacy-First** - 100% local processing, no external communication
+- 🌐 **Web UI** - Modern, responsive web interface with real-time progress (port 8001)
 - 📊 **4-Level Categorization** - Type → Context → Time → Smart naming
 - ⚠️ **Risk Assessment** - Automatic detection of sensitive content (SSN, credit cards, API keys)
 - 📝 **Complete Audit Trail** - Triple-format logging (SQLite + JSON Lines + human-readable)
@@ -52,7 +53,27 @@ pip install -r requirements.txt
 
 ## 📖 Basic Usage
 
-### Scan and Organize Files
+### Web UI (Recommended)
+
+```bash
+# Start the web interface (opens at http://localhost:8001)
+smartfile serve
+
+# Or with custom port
+smartfile serve --port 8002
+```
+
+Then open your browser to `http://localhost:8001` for a modern, visual interface with:
+- Dashboard with system health and recent scans
+- Interactive scanner with real-time progress
+- Filterable results view
+- Settings configuration
+
+See [Web UI Documentation](docs/WEB_UI.md) for details.
+
+### Command Line Interface
+
+#### Scan and Organize Files
 
 ```bash
 # Interactive mode (preview and confirm)
@@ -169,6 +190,7 @@ Edit `~/.organizer/config.json`:
 
 - [Installation Guide](docs/INSTALLATION.md)
 - [Usage Guide](docs/USAGE.md)
+- [Web UI Guide](docs/WEB_UI.md) - **New!** Web interface documentation
 - [Configuration Reference](docs/CONFIGURATION.md)
 - [Privacy & Security](docs/PRIVACY.md)
 - [Audit Trail](docs/AUDIT_TRAIL.md)
