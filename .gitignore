@@ -66,3 +66,11 @@ config.json
 
 # Node modules (if any)
 node_modules/
+
+# Web UI build artifacts
+src/web/dist/
+src/web/build/
+src/web/.vite/
+src/web/.next/
+package-lock.json
+yarn.lock

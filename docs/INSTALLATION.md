@@ -385,3 +385,122 @@ Run the installation test suite:
 # Run Python unit tests (requires pytest)
 pytest tests/install/test_installation.py -v
 ```
+
+## Web UI Installation
+
+SmartFileOrganizer includes a modern web interface built with React. The web UI runs on **port 8001** by default.
+
+### Prerequisites for Web UI
+
+In addition to the base installation requirements:
+
+- **Node.js 18+** and npm (for building the web UI)
+- **Web dependencies** (automatically installed):
+  - FastAPI
+  - Uvicorn
+  - WebSockets
+  - psutil
+  - requests
+
+### Installing Web Dependencies
+
+The web server dependencies are included in `requirements.txt`:
+
+```bash
+# Install all dependencies including web server
+pip install -r requirements.txt
+```
+
+### Building the Web UI (Optional)
+
+The web UI is pre-built, but if you want to customize it:
+
+```bash
+# Navigate to web directory
+cd src/web
+
+# Install Node dependencies
+npm install
+
+# Build for production
+npm run build
+```
+
+The built files will be in `src/web/dist/` and automatically served by the backend.
+
+### Starting the Web Server
+
+```bash
+# Start with default settings (port 8001)
+smartfile serve
+
+# Or with custom port
+smartfile serve --port 8002
+
+# Or using environment variable
+SMARTFILE_PORT=8002 smartfile serve
+
+# Don't auto-open browser
+smartfile serve --no-browser
+```
+
+The web interface will be accessible at `http://localhost:8001`.
+
+### Web UI Features
+
+- 🎨 Modern, responsive interface with dark/light mode
+- 📊 Dashboard with system health and recent scans
+- 🔍 Interactive scanner with real-time progress
+- 📋 Filterable results view
+- ⚙️ Settings configuration
+- 📱 Mobile-responsive design
+
+See [Web UI Documentation](WEB_UI.md) for detailed usage instructions.
+
+### Troubleshooting Web UI
+
+#### Port Already in Use
+
+If port 8001 is occupied:
+
+```bash
+# The CLI will auto-detect and suggest alternatives
+smartfile serve
+# > Error: Port 8001 is already in use
+# > Suggested: Try port 8002
+
+# Use custom port
+smartfile serve --port 8002
+```
+
+#### Web UI Not Loading
+
+If you see "Web UI not built":
+
+```bash
+cd src/web
+npm install
+npm run build
+```
+
+#### WebSocket Connection Issues
+
+Check that:
+1. Backend is running on the correct port
+2. No firewall blocking WebSocket connections
+3. Browser console for error messages
+
+### Development Mode
+
+For development with hot-reload:
+
+```bash
+# Terminal 1: Start backend
+smartfile serve
+
+# Terminal 2: Start frontend dev server
+cd src/web
+npm run dev
+```
+
+Frontend dev server runs on `http://localhost:3000` with API proxy to port 8001.

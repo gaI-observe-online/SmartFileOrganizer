@@ -458,5 +458,102 @@ def stats(ctx, summary):
     db.close()
 
 
+@cli.command()
+@click.option('--port', type=int, help='Port to run web server on (default: 8001)')
+@click.option('--host', type=str, default='127.0.0.1', help='Host to bind to')
+@click.option('--no-browser', is_flag=True, help='Do not open browser automatically')
+@click.pass_context
+def serve(ctx, port, host, no_browser):
+    """Start the web UI server."""
+    import os
+    import socket
+    import webbrowser
+    
+    # Determine port (priority: CLI flag > env var > config > default)
+    if port is None:
+        port = int(os.getenv('SMARTFILE_PORT', '8001'))
+        config = ctx.obj['config']
+        port = config.get('web.port', port)
+    
+    # Check if port is available
+    def is_port_available(port):
+        """Check if a port is available."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind((host, port))
+            sock.close()
+            return True
+        except OSError:
+            return False
+    
+    # Handle port conflicts
+    if not is_port_available(port):
+        console.print(f"[red]❌ Error: Port {port} is already in use[/red]\n")
+        console.print("[bold]💡 Suggested actions:[/bold]")
+        
+        # Try to find alternative ports
+        suggested_ports = []
+        for alt_port in range(port + 1, port + 10):
+            if is_port_available(alt_port):
+                suggested_ports.append(alt_port)
+                if len(suggested_ports) >= 3:
+                    break
+        
+        if suggested_ports:
+            console.print(f"  • Try port {suggested_ports[0]}: smartfile serve --port {suggested_ports[0]}")
+            console.print(f"  • Stop the service using port {port}")
+            console.print(f"  • Configure a custom port in settings")
+            console.print(f"\n[green]🔍 Detecting available ports... Found: {', '.join(map(str, suggested_ports))}[/green]")
+            
+            # Ask if user wants to use alternative port
+            if suggested_ports and click.confirm(f'\nUse port {suggested_ports[0]} instead?', default=True):
+                port = suggested_ports[0]
+            else:
+                return
+        else:
+            console.print(f"  • Stop the service using port {port}")
+            console.print(f"  • Configure a custom port with --port flag")
+            return
+    
+    # Set environment variable for the server
+    os.environ['SMARTFILE_PORT'] = str(port)
+    
+    console.print(Panel.fit(
+        f"[bold green]🚀 Starting SmartFileOrganizer Web UI[/bold green]\n\n"
+        f"[bold]URL:[/bold] http://{host}:{port}\n"
+        f"[bold]Host:[/bold] {host}\n"
+        f"[bold]Port:[/bold] {port}\n\n"
+        f"[yellow]Press Ctrl+C to stop the server[/yellow]",
+        title="SmartFileOrganizer Web Server",
+        border_style="green"
+    ))
+    
+    # Open browser
+    if not no_browser:
+        url = f"http://{host}:{port}"
+        console.print(f"\n[blue]Opening browser at {url}...[/blue]")
+        webbrowser.open(url)
+    
+    # Start uvicorn server
+    try:
+        import uvicorn
+        from ...api.main import app
+        
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="info",
+            access_log=True
+        )
+    except ImportError:
+        console.print("[red]❌ Error: uvicorn not installed[/red]")
+        console.print("[yellow]Install with: pip install uvicorn fastapi[/yellow]")
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Server stopped[/yellow]")
+    except Exception as e:
+        console.print(f"[red]❌ Error starting server: {e}[/red]")
+
+
 if __name__ == '__main__':
     cli()
