@@ -14,6 +14,7 @@ from ..analysis.scanner import Scanner, FileInfo
 from ..analysis.categorizer import Categorizer
 from ..ai.ollama_provider import OllamaProvider
 from ..ai.prompts import ORGANIZATION_SYSTEM_PROMPT, ORGANIZATION_USER_PROMPT
+from ..utils.errors import FileSystemError, AIProviderError
 
 
 logger = logging.getLogger(__name__)
@@ -253,31 +254,54 @@ class Organizer:
             for file_info, dest_path in proposal.files:
                 source = file_info.path
                 
-                # Create destination directory
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    # Create destination directory
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Backup if enabled
+                    if backup_enabled:
+                        self._backup_file(source, backup_dir, file_info.size)
+                    
+                    # Move file
+                    shutil.move(str(source), str(dest_path))
+                    
+                    # Log the move
+                    self.audit_trail.log_move(proposal.proposal_id, str(source), str(dest_path))
+                    
+                    files_moved += 1
+                    logger.debug(f"Moved: {source} → {dest_path}")
                 
-                # Backup if enabled
-                if backup_enabled:
-                    self._backup_file(source, backup_dir, file_info.size)
-                
-                # Move file
-                shutil.move(str(source), str(dest_path))
-                
-                # Log the move
-                self.audit_trail.log_move(proposal.proposal_id, str(source), str(dest_path))
-                
-                files_moved += 1
-                logger.debug(f"Moved: {source} → {dest_path}")
+                except PermissionError as e:
+                    raise FileSystemError(
+                        operation="move file",
+                        path=str(source),
+                        original_error=e
+                    )
+                except OSError as e:
+                    raise FileSystemError(
+                        operation="move file",
+                        path=str(source),
+                        original_error=e
+                    )
             
             # Log execution success
             self.audit_trail.log_execute(proposal.proposal_id, files_moved, True)
             
             return True, files_moved
         
+        except FileSystemError:
+            # Re-raise our custom errors
+            self.audit_trail.log_execute(proposal.proposal_id, files_moved, False)
+            raise
+        
         except Exception as e:
             logger.error(f"Error executing proposal: {e}")
             self.audit_trail.log_execute(proposal.proposal_id, files_moved, False)
-            return False, files_moved
+            raise FileSystemError(
+                operation="execute proposal",
+                path=f"proposal {proposal.proposal_id}",
+                original_error=e
+            )
     
     def _backup_file(self, source: Path, backup_dir: Path, file_size: int) -> None:
         """Backup file before moving.
@@ -294,9 +318,15 @@ class Organizer:
             logger.debug(f"Skipping physical backup for large file: {source}")
             return
         
-        # Full physical backup
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        backup_path = backup_dir / source.name
+        try:
+            # Full physical backup
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_path = backup_dir / source.name
+            
+            shutil.copy2(str(source), str(backup_path))
+            logger.debug(f"Backed up: {source} → {backup_path}")
         
-        shutil.copy2(str(source), str(backup_path))
-        logger.debug(f"Backed up: {source} → {backup_path}")
+        except Exception as e:
+            # Don't fail the whole operation if backup fails
+            logger.warning(f"Backup failed for {source}: {e}")
+            # Could raise here if backups are critical

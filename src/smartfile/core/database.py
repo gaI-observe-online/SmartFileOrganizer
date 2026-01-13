@@ -1,9 +1,15 @@
 """Database management for audit trail."""
 
 import sqlite3
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from ..utils.errors import DatabaseError
+
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -22,59 +28,67 @@ class Database:
     
     def init_database(self) -> None:
         """Initialize database schema."""
-        self.conn = sqlite3.connect(str(self.db_path))
-        self.conn.row_factory = sqlite3.Row
+        try:
+            self.conn = sqlite3.connect(str(self.db_path))
+            self.conn.row_factory = sqlite3.Row
+            
+            cursor = self.conn.cursor()
+            
+            # Scans table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS scans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME NOT NULL,
+                    path TEXT NOT NULL,
+                    file_count INTEGER NOT NULL
+                )
+            """)
+            
+            # Proposals table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS proposals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scan_id INTEGER NOT NULL,
+                    plan TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    timestamp DATETIME NOT NULL,
+                    user_approved BOOLEAN,
+                    rolled_back BOOLEAN DEFAULT 0,
+                    FOREIGN KEY (scan_id) REFERENCES scans(id)
+                )
+            """)
+            
+            # Moves table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS moves (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    proposal_id INTEGER NOT NULL,
+                    original_path TEXT NOT NULL,
+                    new_path TEXT NOT NULL,
+                    timestamp DATETIME NOT NULL,
+                    FOREIGN KEY (proposal_id) REFERENCES proposals(id)
+                )
+            """)
+            
+            # Learning data table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS learning_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_type TEXT NOT NULL,
+                    target_folder TEXT NOT NULL,
+                    user_approved BOOLEAN NOT NULL,
+                    timestamp DATETIME NOT NULL
+                )
+            """)
+            
+            self.conn.commit()
         
-        cursor = self.conn.cursor()
-        
-        # Scans table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS scans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME NOT NULL,
-                path TEXT NOT NULL,
-                file_count INTEGER NOT NULL
+        except sqlite3.Error as e:
+            logger.error(f"Database initialization failed: {e}")
+            raise DatabaseError(
+                operation="initialize database",
+                original_error=e
             )
-        """)
-        
-        # Proposals table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS proposals (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                scan_id INTEGER NOT NULL,
-                plan TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                timestamp DATETIME NOT NULL,
-                user_approved BOOLEAN,
-                rolled_back BOOLEAN DEFAULT 0,
-                FOREIGN KEY (scan_id) REFERENCES scans(id)
-            )
-        """)
-        
-        # Moves table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS moves (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                proposal_id INTEGER NOT NULL,
-                original_path TEXT NOT NULL,
-                new_path TEXT NOT NULL,
-                timestamp DATETIME NOT NULL,
-                FOREIGN KEY (proposal_id) REFERENCES proposals(id)
-            )
-        """)
-        
-        # Learning data table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS learning_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_type TEXT NOT NULL,
-                target_folder TEXT NOT NULL,
-                user_approved BOOLEAN NOT NULL,
-                timestamp DATETIME NOT NULL
-            )
-        """)
-        
-        self.conn.commit()
     
     def add_scan(self, path: str, file_count: int) -> int:
         """Add scan record.
